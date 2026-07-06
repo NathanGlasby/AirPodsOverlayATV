@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0E0E12"
+    android:padding="48dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AirPods Overlay"
+            android:textColor="#F2F2F5"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Pop up a connect prompt when your AirPods case opens near the TV"
+            android:textColor="#A8A8B0"
+            android:textSize="15sp" />
+
+        <!-- Setup status -->
+        <TextView style="@style/SectionHeader" android:text="Setup" />
+
+        <TextView
+            android:id="@+id/permStatus"
+            style="@style/StatusLine" />
+
+        <Button
+            android:id="@+id/grantPermsBtn"
+            style="@style/TvButton"
+            android:text="Grant permissions" />
+
+        <TextView
+            android:id="@+id/overlayStatus"
+            style="@style/StatusLine" />
+
+        <Button
+            android:id="@+id/overlayBtn"
+            style="@style/TvButton"
+            android:text="Open overlay permission settings" />
+
+        <!-- Device -->
+        <TextView style="@style/SectionHeader" android:text="Your AirPods" />
+
+        <TextView
+            style="@style/StatusLine"
+            android:text="Pick the paired device the Connect button should use:" />
+
+        <LinearLayout
+            android:id="@+id/deviceList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/renameBtn"
+            style="@style/TvButton"
+            android:text="Popup name" />
+
+        <!-- Options -->
+        <TextView style="@style/SectionHeader" android:text="Options" />
+
+        <Switch
+            android:id="@+id/enabledSwitch"
+            style="@style/TvSwitch"
+            android:text="Background scanner (required)" />
+
+        <Switch
+            android:id="@+id/autoConnectSwitch"
+            style="@style/TvSwitch"
+            android:text="Auto-connect on case open (skip the popup)" />
+
+        <Switch
+            android:id="@+id/blockAutoSwitch"
+            style="@style/TvSwitch"
+            android:text="Block the TV's own auto-connect (connect only via popup)" />
+
+        <Button
+            android:id="@+id/rssiBtn"
+            style="@style/TvButton"
+            android:text="Trigger distance" />
+
+        <Button
+            android:id="@+id/testBtn"
+            style="@style/TvButton"
+            android:text="Show test popup (3 s delay)" />
+
+        <!-- Reactions -->
+        <TextView style="@style/SectionHeader" android:text="Reactions" />
+
+        <Switch
+            android:id="@+id/modelFilterSwitch"
+            style="@style/TvSwitch"
+            android:text="Only react to AirPods 4 (ANC) beacons" />
+
+        <Switch
+            android:id="@+id/identitySwitch"
+            style="@style/TvSwitch"
+            android:text="Only my AirPods (identity key match)" />
+
+        <Switch
+            android:id="@+id/autoPauseSwitch"
+            style="@style/TvSwitch"
+            android:text="Pause playback when a pod is removed from ear" />
+
+        <Switch
+            android:id="@+id/autoDisconnectSwitch"
+            style="@style/TvSwitch"
+            android:text="Disconnect when the case lid closes" />
+
+        <!-- AAP -->
+        <TextView style="@style/SectionHeader" android:text="Enhanced session (AAP)" />
+
+        <Switch
+            android:id="@+id/aapSwitch"
+            style="@style/TvSwitch"
+            android:text="Talk to AirPods directly after connecting (exact battery, ANC, ear detection)" />
+
+        <TextView
+            android:id="@+id/aapStatus"
+            style="@style/StatusLine" />
+
+        <LinearLayout
+            android:id="@+id/ancRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/ancOffBtn"
+                style="@style/TvButton"
+                android:layout_marginEnd="8dp"
+                android:text="Off" />
+
+            <Button
+                android:id="@+id/ancOnBtn"
+                style="@style/TvButton"
+                android:layout_marginEnd="8dp"
+                android:text="ANC" />
+
+            <Button
+                android:id="@+id/ancTransBtn"
+                style="@style/TvButton"
+                android:layout_marginEnd="8dp"
+                android:text="Transparency" />
+
+            <Button
+                android:id="@+id/ancAdaptiveBtn"
+                style="@style/TvButton"
+                android:text="Adaptive" />
+        </LinearLayout>
+
+        <!-- Debug -->
+        <TextView style="@style/SectionHeader" android:text="Live beacons (debug)" />
+
+        <TextView
+            style="@style/StatusLine"
+            android:text="● = strong enough to trigger, ○ = too weak/filtered. Open your AirPods case nearby to see it broadcast." />
+
+        <TextView
+            android:id="@+id/debugText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="monospace"
+            android:textColor="#7BD88F"
+            android:textSize="13sp"
+            android:text="(no beacons yet)" />
+
+        <!-- About -->
+        <TextView style="@style/SectionHeader" android:text="About" />
+
+        <TextView
+            style="@style/StatusLine"
+            android:text="Free software under GPL-3.0. AirPods icon by Icons8 (icons8.com)." />
+
+        <Button
+            android:id="@+id/licensesBtn"
+            style="@style/TvButton"
+            android:text="Open source licenses" />
+
+    </LinearLayout>
+</ScrollView>
