@@ -14,7 +14,9 @@ object RpaVerifier {
         val rpa = address.split(":").map { it.toInt(16).toByte() }.reversed().toByteArray()
         val prand = rpa.copyOfRange(3, 6)
         val hash = rpa.copyOfRange(0, 3)
-        hash.contentEquals(ah(irk, prand))
+        // The AAP key exchange delivers the IRK in an unverified byte order; a real
+        // RPA only matches one orientation, so accepting both loses no strictness.
+        hash.contentEquals(ah(irk, prand)) || hash.contentEquals(ah(irk.reversedArray(), prand))
     } catch (_: Exception) {
         false
     }
