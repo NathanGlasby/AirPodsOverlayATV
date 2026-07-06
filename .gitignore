@@ -13,6 +13,9 @@ local.properties
 *.apk
 *.aab
 
+# Personal Claude Code notes
+CLAUDE.local.md
+
 # OS
 .DS_Store
 Thumbs.db
