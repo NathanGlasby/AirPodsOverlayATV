@@ -84,7 +84,6 @@ class BleScanService : Service() {
     private var popupIsTest = false
     private var latestBeacon: BeaconParser.Beacon? = null
     private var connectRequestedAt = 0L
-    private val battery = BatteryAggregator()
     private var irkBytes: ByteArray? = null
     private var aap: AapClient? = null
     private var aapEarActive = false
@@ -144,9 +143,8 @@ class BleScanService : Service() {
                 Log.i(TAG, "Session reset — popup re-armed")
                 suppressed = false
             }
-            // Long silence: next case-open is a fresh session, don't carry stale batteries.
+            // Long silence: next case-open is a fresh session.
             if (lastStrongBeaconAt != 0L && now - lastStrongBeaconAt > 60_000L) {
-                battery.reset()
                 lastStrongBeaconAt = 0L
             }
             main.postDelayed(this, 1000L)
@@ -292,7 +290,6 @@ class BleScanService : Service() {
         val now = System.currentTimeMillis()
         lastStrongBeaconAt = now
         latestBeacon = beacon
-        battery.update(beacon)
 
         // In-ear transitions (only meaningful from a pod that's out of the case);
         // AAP ear events take over when a session is live.
