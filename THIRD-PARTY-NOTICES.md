@@ -6,10 +6,9 @@ uses assets and libraries listed below.
 
 ## Projects this app learned from
 
-Parts of this app — the Apple BLE proximity beacon parsing, the AAP (Apple Accessory
-Protocol) session handling, and the battery/ANC status features — were developed by
-studying the following GPL-3.0 licensed projects. Their reverse-engineering work made
-this app possible.
+Parts of this app (the Apple BLE proximity beacon parsing, the AAP session handling,
+and the battery/ANC status features) were developed by studying the following
+GPL-3.0 licensed projects. Their reverse engineering made this app possible.
 
 | Project | Author | License |
 |---|---|---|
