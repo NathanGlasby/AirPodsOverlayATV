@@ -54,8 +54,8 @@ BLE scan service that parses these frames ([BeaconParser.kt](app/src/main/java/d
 and connects via the hidden `BluetoothA2dp`/`BluetoothHeadset` profile APIs
 (reflection + [hiddenapibypass](https://github.com/LSPosed/AndroidHiddenApiBypass)).
 The optional AAP session opens an insecure L2CAP channel on PSM `0x1001` for the
-features BLE beacons can't provide. See [docs/REFERENCE.md](docs/REFERENCE.md) for the
-projects this reverse engineering came from.
+features BLE beacons can't provide. The reverse engineering behind all of this came
+from the projects in the Credits section below.
 
 ## Credits
 
