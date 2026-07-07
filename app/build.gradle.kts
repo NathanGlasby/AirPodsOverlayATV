@@ -4,7 +4,11 @@ plugins {
 }
 
 // Keep build outputs out of OneDrive — its sync locks files mid-build.
-layout.buildDirectory.set(file("C:/GradleBuilds/AirPodsOverlayATV/app"))
+// Windows-only: elsewhere "C:/..." resolves as a relative path and litters the
+// repo with a literal "C:" directory.
+if (System.getProperty("os.name").startsWith("Windows")) {
+    layout.buildDirectory.set(file("C:/GradleBuilds/AirPodsOverlayATV/app"))
+}
 
 android {
     namespace = "dev.nathan.airpodstv"
