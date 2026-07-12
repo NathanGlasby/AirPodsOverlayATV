@@ -75,7 +75,8 @@ under GPL-3.0:
 - [LibrePods](https://github.com/kavishdevar/librepods) by kavishdevar: AAP protocol documentation
 - [PodsCompanion](https://github.com/Domi04151309/PodsCompanion) by Domi04151309: popup UI ideas
 
-AirPods icon by [Icons8](https://icons8.com). See
+AirPods 4 product image courtesy of iStore United Kingdom. Additional AirPods
+icon by [Icons8](https://icons8.com). See
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for details.
 
 ## License
