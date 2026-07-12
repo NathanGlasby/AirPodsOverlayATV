@@ -7,18 +7,6 @@ class Prefs(context: Context) {
     private val sp: SharedPreferences =
         context.getSharedPreferences("airpods_overlay", Context.MODE_PRIVATE)
 
-    init {
-        // v2.0 silently enabled both strict gates. Reset them once on upgrade so a stale
-        // model/identity assumption cannot keep an existing installation permanently inert.
-        if (!sp.getBoolean("v23_trigger_defaults_migrated", false)) {
-            sp.edit()
-                .putBoolean("model_filter", false)
-                .putBoolean("identity_filter", false)
-                .putBoolean("v23_trigger_defaults_migrated", true)
-                .apply()
-        }
-    }
-
     var enabled: Boolean
         get() = sp.getBoolean("enabled", false)
         set(v) = sp.edit().putBoolean("enabled", v).apply()

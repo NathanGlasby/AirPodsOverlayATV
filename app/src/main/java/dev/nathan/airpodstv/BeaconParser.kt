@@ -66,19 +66,20 @@ object BeaconParser {
         val thisPodInCase = (status and 0x40) != 0
         val onePodInCase = (status and 0x10) != 0
         val bothInCase = (status and 0x04) != 0
-        val podsInCase = thisPodInCase || onePodInCase || bothInCase
+        val anyPodInCase = thisPodInCase || onePodInCase || bothInCase
+        val broadcastingPodInCase = thisPodInCase || bothInCase
 
         // The lid bit is trustworthy only from a pod broadcasting inside the case,
         // or while both pods are in it. A bit-4-only frame comes from the pod outside
         // the case and can carry a stale lid byte.
         val lidReadingReliable = thisPodInCase || bothInCase
         val lidState = when {
-            !podsInCase -> LidState.UNKNOWN
+            !anyPodInCase -> LidState.UNKNOWN
             !lidReadingReliable -> LidState.UNKNOWN
             (lidByte shr 3) and 1 == 0 -> LidState.OPEN
             else -> LidState.CLOSED
         }
-        return CaseState(thisPodInCase, podsInCase, lidState)
+        return CaseState(thisPodInCase, broadcastingPodInCase, lidState)
     }
 
     fun parse(result: ScanResult): Beacon? {
