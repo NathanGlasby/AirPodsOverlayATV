@@ -6,7 +6,7 @@ import android.os.Looper
 /** In-process feed of parsed beacons so the settings UI can show a live debug view. */
 object BeaconBus {
     interface Listener {
-        fun onBeacon(beacon: BeaconParser.Beacon, passedFilter: Boolean)
+        fun onBeacon(beacon: BeaconParser.Beacon, passedFilter: Boolean, filterReason: String)
 
         /** Any other Apple BLE frame (non-0x07), for diagnosing what the case broadcasts. */
         fun onRawFrame(type: Int, hex: String, rssi: Int) {}
@@ -17,9 +17,9 @@ object BeaconBus {
     @Volatile
     var listener: Listener? = null
 
-    fun publish(beacon: BeaconParser.Beacon, passedFilter: Boolean) {
+    fun publish(beacon: BeaconParser.Beacon, passedFilter: Boolean, filterReason: String) {
         val l = listener ?: return
-        main.post { l.onBeacon(beacon, passedFilter) }
+        main.post { l.onBeacon(beacon, passedFilter, filterReason) }
     }
 
     fun publishRaw(type: Int, hex: String, rssi: Int) {

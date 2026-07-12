@@ -229,7 +229,7 @@ class OverlayController(
     fun setResult(success: Boolean, autoHideMs: Long = 2500L) {
         statusOverridesBattery = true
         subtitleView?.apply {
-            text = if (success) "Connected ✓" else "Connection failed — try again"
+            text = if (success) "Connected ✓" else "Connection failed. Try again"
             setTextColor(if (success) GREEN else RED)
         }
         if (!success) {

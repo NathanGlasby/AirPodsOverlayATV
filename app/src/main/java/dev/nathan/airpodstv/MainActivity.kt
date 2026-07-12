@@ -6,6 +6,7 @@ import android.app.Activity
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +20,11 @@ import android.widget.Toast
 
 @SuppressLint("MissingPermission", "UseSwitchCompatOrMaterialCode", "SetTextI18n")
 class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
+
+    private companion object {
+        const val REQUEST_FOREGROUND_PERMISSIONS = 1
+        const val REQUEST_BACKGROUND_LOCATION = 2
+    }
 
     private lateinit var prefs: Prefs
 
@@ -77,7 +83,13 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         aapStatus = findViewById(R.id.aapStatus)
 
         modelFilterSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.modelFilter = c }
-        identitySwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.identityFilter = c }
+        identitySwitch.setOnCheckedChangeListener { _, c ->
+            if (refreshingUi) return@setOnCheckedChangeListener
+            prefs.identityFilter = c
+            if (c && !prefs.irkVerified) {
+                toast("Identity protection will use distance until the captured key is verified")
+            }
+        }
         autoPauseSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.autoPause = c }
         autoDisconnectSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.autoDisconnectOnLidClose = c }
         aapSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.aapEnabled = c }
@@ -92,7 +104,7 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
             button.setOnClickListener {
                 val service = BleScanService.instance
                 if (service == null || !AapBus.sessionActive) {
-                    toast("Connect your AirPods first — ANC control needs a live session")
+                    toast("Connect your AirPods first. ANC control needs a live session")
                 } else {
                     service.sendAncMode(wireMode)
                 }
@@ -148,7 +160,7 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
                 return@setOnClickListener
             }
             BleScanService.start(this, BleScanService.ACTION_TEST_POPUP)
-            toast("Test popup in 3 seconds — switch to another app to see it overlay")
+            toast("Test popup in 3 seconds. Switch to another app to see it overlay")
         }
     }
 
@@ -169,7 +181,11 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
     override fun onAapChanged() {
         val irkCaptured = prefs.irkHex != null
         val session = if (AapBus.sessionActive) "session active" else "no session (connect to start)"
-        val identity = if (irkCaptured) "identity key captured ✓" else "identity key not captured yet — connect once"
+        val identity = when {
+            !irkCaptured -> "identity key not captured yet; connect once"
+            prefs.irkVerified -> "identity key verified ✓"
+            else -> "identity key captured; awaiting live verification (distance fallback active)"
+        }
         val batteryPart = AapBus.batteryLine?.let { "\nBattery: $it" } ?: ""
         aapStatus.text = "Status: $session · $identity$batteryPart"
         identitySwitch.isEnabled = irkCaptured
@@ -190,6 +206,9 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
             need += Manifest.permission.BLUETOOTH_CONNECT
         } else {
             need += Manifest.permission.ACCESS_FINE_LOCATION
+            if (Build.VERSION.SDK_INT >= 29) {
+                need += Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            }
         }
         if (Build.VERSION.SDK_INT >= 33) {
             need += Manifest.permission.POST_NOTIFICATIONS
@@ -202,13 +221,48 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
             checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
         }
 
+    private fun locationServicesReady(): Boolean {
+        if (Build.VERSION.SDK_INT >= 31) return true
+        val manager = getSystemService(LOCATION_SERVICE) as LocationManager
+        return manager.isLocationEnabled
+    }
+
     private fun requestNeededPermissions() {
         val missing = missingPermissions()
         if (missing.isEmpty()) {
+            if (!locationServicesReady()) {
+                toast("Turn on Android Location so Bluetooth beacons are visible")
+                try {
+                    startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                } catch (_: Exception) {
+                    toast("Open Android Settings and turn on Location")
+                }
+                return
+            }
             toast("All permissions already granted")
             return
         }
-        requestPermissions(missing.toTypedArray(), 1)
+
+        // Android ignores a background-location request made together with foreground location.
+        val foregroundMissing = missing.filterNot {
+            it == Manifest.permission.ACCESS_BACKGROUND_LOCATION
+        }
+        if (foregroundMissing.isNotEmpty()) {
+            requestPermissions(foregroundMissing.toTypedArray(), REQUEST_FOREGROUND_PERMISSIONS)
+            return
+        }
+
+        if (Manifest.permission.ACCESS_BACKGROUND_LOCATION in missing) {
+            if (Build.VERSION.SDK_INT >= 30) {
+                toast("In Permissions > Location, choose Allow all the time so scanning works over other apps")
+                openAppSettings()
+            } else {
+                requestPermissions(
+                    arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                    REQUEST_BACKGROUND_LOCATION,
+                )
+            }
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -216,6 +270,22 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         refreshUi()
+        if (requestCode == REQUEST_FOREGROUND_PERMISSIONS && Build.VERSION.SDK_INT in 29..30 &&
+            grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+        ) {
+            // Continue the required two-step flow on Android 10/11.
+            requestNeededPermissions()
+        }
+    }
+
+    private fun openAppSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            )
+        } catch (_: Exception) {
+            toast("Open Android Settings > Apps > AirPods Overlay > Permissions > Location")
+        }
     }
 
     private fun openOverlaySettings() {
@@ -227,18 +297,28 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
             } catch (e2: Exception) {
-                toast("No settings UI — run: adb shell appops set $packageName SYSTEM_ALERT_WINDOW allow")
+                toast("No settings UI. Run: adb shell appops set $packageName SYSTEM_ALERT_WINDOW allow")
             }
         }
     }
 
     private fun readyToRun(): Boolean {
-        if (missingPermissions().isNotEmpty()) {
-            toast("Grant Bluetooth/location permissions first")
+        val missing = missingPermissions()
+        if (missing.isNotEmpty()) {
+            val message = if (Manifest.permission.ACCESS_BACKGROUND_LOCATION in missing) {
+                "Allow location all the time so the scanner works over other apps"
+            } else {
+                "Grant Bluetooth/location permissions first"
+            }
+            toast(message)
             return false
         }
         if (!Settings.canDrawOverlays(this)) {
             toast("Grant the overlay permission first")
+            return false
+        }
+        if (!locationServicesReady()) {
+            toast("Turn on Android Location so the scanner can receive BLE beacons")
             return false
         }
         return true
@@ -249,9 +329,13 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
     private fun refreshUi() {
         refreshingUi = true
         val missing = missingPermissions()
-        permStatus.text = if (missing.isEmpty()) "✓ Bluetooth & scan permissions granted"
-        else "✗ Missing: " + missing.joinToString(", ") { it.substringAfterLast('.') }
-        grantPermsBtn.visibility = if (missing.isEmpty()) View.GONE else View.VISIBLE
+        val locationOk = locationServicesReady()
+        permStatus.text = when {
+            missing.isNotEmpty() -> "✗ Missing: " + missing.joinToString(", ") { it.substringAfterLast('.') }
+            !locationOk -> "✗ Android Location is off (required for BLE scanning on Android 11 and older)"
+            else -> "✓ Bluetooth & background scan permissions granted"
+        }
+        grantPermsBtn.visibility = if (missing.isEmpty() && locationOk) View.GONE else View.VISIBLE
 
         val overlayOk = Settings.canDrawOverlays(this)
         overlayStatus.text = if (overlayOk) "✓ Overlay permission granted"
@@ -345,8 +429,18 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
                 isFocusableInTouchMode = true
                 setBackgroundResource(R.drawable.focus_bg)
                 setOnClickListener {
+                    val oldAddress = prefs.deviceAddress
+                    val deviceChanged = oldAddress != dev.address
                     prefs.deviceAddress = dev.address
                     prefs.deviceName = dev.name ?: "AirPods"
+                    if (deviceChanged) {
+                        // An IRK belongs to one physical device; never carry it to a new selection.
+                        prefs.irkHex = null
+                        if (BleScanService.isRunning) {
+                            BleScanService.deviceChanged(this@MainActivity, oldAddress)
+                        }
+                        onAapChanged()
+                    }
                     populateDevices()
                 }
             }
@@ -358,11 +452,16 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
 
     private val rawFrames = LinkedHashMap<Int, String>()
 
-    override fun onBeacon(beacon: BeaconParser.Beacon, passedFilter: Boolean) {
+    override fun onBeacon(
+        beacon: BeaconParser.Beacon,
+        passedFilter: Boolean,
+        filterReason: String,
+    ) {
         val mark = if (passedFilter) "●" else "○"
         val line = "$mark ${beacon.modelName}  ${beacon.rssi} dBm  lid=${beacon.lidState}" +
             "  st=0x%02X lb=0x%02X".format(beacon.statusByte, beacon.lidByte) +
-            "  L=${beacon.leftBattery ?: "-"} R=${beacon.rightBattery ?: "-"} C=${beacon.caseBattery ?: "-"}"
+            "  L=${beacon.leftBattery ?: "-"} R=${beacon.rightBattery ?: "-"} C=${beacon.caseBattery ?: "-"}" +
+            "  [$filterReason]"
         if (debugLines.firstOrNull() != line) {
             debugLines.addFirst(line)
             while (debugLines.size > 6) debugLines.removeLast()
@@ -384,7 +483,7 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         if (debugLines.isEmpty()) sb.append("(no AirPods beacons yet)")
         else sb.append(debugLines.joinToString("\n"))
         if (rawFrames.isNotEmpty()) {
-            sb.append("\n— other Apple frames —\n")
+            sb.append("\nOther Apple frames\n")
             sb.append(rawFrames.values.joinToString("\n"))
         }
         debugText.text = sb.toString()

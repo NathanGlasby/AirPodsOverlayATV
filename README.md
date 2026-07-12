@@ -18,8 +18,8 @@ Android TV devices and AirPods models should work, but that's the tested combo.
   (Off / ANC / Transparency / Adaptive), and in-ear detection.
 - Pauses playback when you take a pod out of your ear.
 - Disconnects when you close the case lid.
-- Learns your AirPods' identity key after the first session, then ignores any other
-  AirPods that wander past.
+- Can learn and verify your AirPods' identity key, then use the optional strict
+  identity filter to ignore other AirPods that wander past.
 - Trigger distance presets from about 1 m to anywhere in the room.
 
 ## AirPods 4: double-tap the case
@@ -34,8 +34,15 @@ Sideload the APK from [Releases](https://github.com/NathanGlasby/AirPodsOverlayA
 onto your TV (LocalSend, Send Files to TV, or `adb install`). Then in the app:
 
 1. Grant the Bluetooth/scan permissions and the **Display over other apps** permission.
+   On Android 10/11, Location must be set to **Allow all the time** because the
+   scanner runs while other TV apps are in front, and the system Location toggle
+   must remain on for BLE discovery.
 2. Pair your AirPods in the TV's Bluetooth settings (once), then select them in the app.
 3. Turn on the background scanner.
+
+The model and identity filters are strict opt-in controls. Leave them off until the
+live-beacon view is working; every beacon line shows whether it was accepted and, if
+not, the exact rejection reason.
 
 ## Build
 

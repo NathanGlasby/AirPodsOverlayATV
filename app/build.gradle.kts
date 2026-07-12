@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Keep build outputs out of OneDrive — its sync locks files mid-build.
+// Keep build outputs out of OneDrive because its sync locks files mid-build.
 layout.buildDirectory.set(file("C:/GradleBuilds/AirPodsOverlayATV/app"))
 
 android {
@@ -14,8 +14,8 @@ android {
         applicationId = "dev.nathan.airpodstv"
         minSdk = 28
         targetSdk = 34
-        versionCode = 12
-        versionName = "2.2"
+        versionCode = 13
+        versionName = "2.3"
     }
 
     buildTypes {
@@ -36,4 +36,5 @@ android {
 
 dependencies {
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
+    testImplementation("junit:junit:4.13.2")
 }
