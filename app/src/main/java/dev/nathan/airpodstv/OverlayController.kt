@@ -1,29 +1,34 @@
 package dev.nathan.airpodstv
 
+import android.animation.ValueAnimator
 import android.content.Context
-import android.content.res.ColorStateList
-import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
-import android.view.animation.OvershootInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * tvOS-style "mono glass" pill drawn over the foreground app (top-right).
- * One horizontal capsule: badge, name + battery line, Connect pill, ✕ circle.
- * D-pad left/right moves between the buttons; the focused control turns solid
- * white with dark text (the Apple TV focus idiom). BACK dismisses.
+ * Compact tvOS-style discovery pill drawn over the foreground app.
+ *
+ * The full capsule is the only focus target. Its artwork, device name, status
+ * icon, and status label all use fixed geometry, so connection state changes do
+ * not resize the pill or move the text. BACK dismisses the overlay.
  */
 class OverlayController(
     private val context: Context,
@@ -35,11 +40,11 @@ class OverlayController(
     private val density = context.resources.displayMetrics.density
 
     private var root: FrameLayout? = null
+    private var pillView: LinearLayout? = null
     private var subtitleView: TextView? = null
-    private var connectBtn: TextView? = null
-    private var dismissBtn: TextView? = null
-    private var statusOverridesBattery = false
+    private var statusIndicator: StatusIndicatorView? = null
     private var timeoutRunnable: Runnable? = null
+    private var canConnect = false
 
     val isShowing: Boolean get() = root != null
 
@@ -47,103 +52,135 @@ class OverlayController(
     private fun dpF(v: Float): Float = v * density
 
     private companion object {
-        val PILL_BG = 0xF516161A.toInt()
-        val PILL_STROKE = 0x1AFFFFFF
-        val CONTROL_IDLE = 0x14FFFFFF
+        val PILL_BG = 0xD915191F.toInt()
+        val PILL_FOCUSED = 0xE63A3F48.toInt()
+        val PILL_STROKE = 0x18FFFFFF
+        val PILL_FOCUSED_STROKE = 0x38FFFFFF
         val TEXT_PRIMARY = 0xFFF4F4F7.toInt()
-        val TEXT_SECONDARY = 0xFF98989F.toInt()
-        val TEXT_ON_WHITE = 0xFF111114.toInt()
-        val GREEN = 0xFF3ACB74.toInt()
+        val TEXT_SECONDARY = 0xFF9D9DA5.toInt()
+        val GREEN = 0xFF64D987.toInt()
         val RED = 0xFFE5544B.toInt()
     }
 
     /**
-     * @param withButtons false = transient info pill: no Connect/✕, window doesn't
-     * take remote focus, just slides in and auto-hides.
+     * @param withButtons false shows a transient, non-focusable information pill.
      */
     fun show(deviceName: String, timeoutSec: Int, withButtons: Boolean = true) {
         if (isShowing) return
-        statusOverridesBattery = false
+        canConnect = withButtons
 
         val pill = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadius = dpF(200f)
-                setColor(PILL_BG)
-                setStroke(dp(1), PILL_STROKE)
-            }
-            setPadding(dp(9), dp(9), dp(11), dp(9))
+            background = pillBackground()
+            setPadding(dp(8), dp(5), dp(15), dp(5))
             elevation = dpF(12f)
-        }
-
-        // Badge: AirPods glyph in a soft translucent circle
-        val badge = ImageView(context).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(CONTROL_IDLE)
+            isFocusable = withButtons
+            isFocusableInTouchMode = withButtons
+            isClickable = withButtons
+            setOnClickListener {
+                if (canConnect) {
+                    setConnecting()
+                    onConnect()
+                }
             }
-            setImageResource(R.drawable.airpods4)
-            setColorFilter(Color.WHITE)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(dp(9), dp(9), dp(9), dp(9))
+            setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                    onDismiss()
+                    true
+                } else {
+                    false
+                }
+            }
+            setOnFocusChangeListener { view, hasFocus ->
+                view.animate()
+                    .scaleX(if (hasFocus) 1.03f else 1f)
+                    .scaleY(if (hasFocus) 1.03f else 1f)
+                    .setDuration(130)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            }
         }
-        pill.addView(badge, LinearLayout.LayoutParams(dp(44), dp(44)))
+        pillView = pill
 
-        // Name + battery/status line
-        val texts = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), 0, dp(14), 0)
+        val artwork = ImageView(context).apply {
+            setImageResource(R.drawable.airpods4_photo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = false
         }
-        texts.addView(TextView(context).apply {
+        pill.addView(artwork, LinearLayout.LayoutParams(dp(31), dp(31)))
+
+        val copy = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val copyParams = LinearLayout.LayoutParams(dp(134), dp(34)).apply {
+            marginStart = dp(9)
+        }
+
+        copy.addView(TextView(context).apply {
             text = deviceName
             setTextColor(TEXT_PRIMARY)
-            textSize = 15f
+            textSize = 14f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        })
-        subtitleView = TextView(context).apply {
-            text = "Ready to connect"
-            setTextColor(TEXT_SECONDARY)
-            textSize = 12f
-        }
-        texts.addView(subtitleView)
-        pill.addView(texts)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(18)))
 
-        // Connect capsule + ✕ circle
-        connectBtn = makeControl("Connect", circle = false).apply {
-            setOnClickListener { setConnecting(); onConnect() }
+        val statusRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        dismissBtn = makeControl("✕", circle = true).apply {
-            setOnClickListener { onDismiss() }
+        val statusParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(14)).apply {
+            topMargin = dp(2)
         }
-        pill.addView(connectBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(40)))
-        pill.addView(View(context), LinearLayout.LayoutParams(dp(8), 1))
-        pill.addView(dismissBtn, LinearLayout.LayoutParams(dp(40), dp(40)))
-        if (!withButtons) {
-            connectBtn?.visibility = View.GONE
-            dismissBtn?.visibility = View.GONE
+
+        val indicator = StatusIndicatorView(context).apply {
+            mode = if (withButtons) IndicatorMode.OK else IndicatorMode.NONE
         }
+        statusIndicator = indicator
+        statusRow.addView(indicator, LinearLayout.LayoutParams(dp(12), dp(12)))
+
+        val subtitle = TextView(context).apply {
+            text = if (withButtons) "Press OK to connect" else "Nearby"
+            setTextColor(TEXT_SECONDARY)
+            textSize = 10f
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        subtitleView = subtitle
+        statusRow.addView(subtitle, LinearLayout.LayoutParams(dp(118), dp(14)).apply {
+            marginStart = dp(4)
+        })
+        copy.addView(statusRow, statusParams)
+        pill.addView(copy, copyParams)
 
         val container = FrameLayout(context).apply {
             clipChildren = false
             clipToPadding = false
             setPadding(dp(16), dp(16), dp(16), dp(16))
             addView(pill, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                dp(50),
             ))
             isFocusableInTouchMode = true
             setOnKeyListener { _, keyCode, event ->
                 if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
                     onDismiss()
                     true
-                } else false
+                } else {
+                    false
+                }
             }
         }
         root = container
 
         var windowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
         if (!withButtons) {
-            // Transient pill must not steal the remote from the app underneath.
             windowFlags = windowFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         }
         val params = WindowManager.LayoutParams(
@@ -151,7 +188,7 @@ class OverlayController(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             windowFlags,
-            PixelFormat.TRANSLUCENT
+            PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.END
             x = dp(10)
@@ -161,82 +198,65 @@ class OverlayController(
         wm.addView(container, params)
 
         container.alpha = 0f
-        container.translationY = dpF(-28f)
+        container.translationY = dpF(-10f)
         container.animate()
             .alpha(1f)
             .translationY(0f)
-            .setDuration(300)
-            .setInterpolator(OvershootInterpolator(1.05f))
+            .setDuration(210)
+            .setInterpolator(DecelerateInterpolator())
             .start()
-        if (withButtons) connectBtn?.requestFocus()
+        if (withButtons) pill.requestFocus()
 
         timeoutRunnable = Runnable { onDismiss() }.also {
             main.postDelayed(it, timeoutSec * 1000L)
         }
     }
 
-    /** tvOS focus idiom: idle = translucent gray, focused = solid white + dark text. */
-    private fun makeControl(label: String, circle: Boolean): TextView {
-        fun shape(color: Int) = GradientDrawable().apply {
-            if (circle) shape = GradientDrawable.OVAL else cornerRadius = dpF(20f)
+    private fun pillBackground(): StateListDrawable {
+        fun capsule(color: Int, stroke: Int) = GradientDrawable().apply {
+            cornerRadius = dpF(200f)
             setColor(color)
+            setStroke(dp(1), stroke)
         }
-        return TextView(context).apply {
-            text = label
-            gravity = Gravity.CENTER
-            textSize = if (circle) 15f else 13f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            if (!circle) setPadding(dp(20), 0, dp(20), 0)
-            isFocusable = true
-            isFocusableInTouchMode = true
-            background = StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_focused), shape(Color.WHITE))
-                addState(intArrayOf(), shape(CONTROL_IDLE))
-            }
-            setTextColor(ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()),
-                intArrayOf(TEXT_ON_WHITE, 0xFFE0E0E6.toInt())
-            ))
-            setOnFocusChangeListener { v, hasFocus ->
-                v.animate().scaleX(if (hasFocus) 1.07f else 1f)
-                    .scaleY(if (hasFocus) 1.07f else 1f)
-                    .setDuration(110).start()
-            }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), capsule(PILL_FOCUSED, PILL_FOCUSED_STROKE))
+            addState(intArrayOf(), capsule(PILL_BG, PILL_STROKE))
         }
     }
 
-    /** Directly set the status line (e.g. exact battery once AAP reports it). */
+    /** Directly updates the fixed status slot, such as an AAP battery line. */
     fun setSubtitle(text: String, color: Int? = null) {
         subtitleView?.apply {
             this.text = text
             setTextColor(color ?: TEXT_SECONDARY)
         }
+        statusIndicator?.mode = when (color) {
+            GREEN -> IndicatorMode.CONNECTED
+            RED -> IndicatorMode.ERROR
+            else -> IndicatorMode.NONE
+        }
     }
 
     fun setConnecting() {
-        statusOverridesBattery = true
+        canConnect = false
         subtitleView?.apply {
             text = "Connecting…"
             setTextColor(TEXT_SECONDARY)
         }
-        connectBtn?.visibility = View.GONE
-        dismissBtn?.visibility = View.GONE
-        // Connection can take a while; extend the auto-dismiss window.
+        statusIndicator?.mode = IndicatorMode.CONNECTING
         timeoutRunnable?.let { main.removeCallbacks(it) }
         timeoutRunnable = Runnable { onDismiss() }.also { main.postDelayed(it, 30_000L) }
     }
 
     fun setResult(success: Boolean, autoHideMs: Long = 2500L) {
-        statusOverridesBattery = true
+        canConnect = !success
         subtitleView?.apply {
-            text = if (success) "Connected ✓" else "Connection failed. Try again"
+            text = if (success) "Connected" else "Failed · Press OK to retry"
             setTextColor(if (success) GREEN else RED)
         }
-        if (!success) {
-            connectBtn?.visibility = View.VISIBLE
-            dismissBtn?.visibility = View.VISIBLE
-            connectBtn?.requestFocus()
-        }
+        statusIndicator?.mode = if (success) IndicatorMode.CONNECTED else IndicatorMode.ERROR
+        if (!success) pillView?.requestFocus()
+
         timeoutRunnable?.let { main.removeCallbacks(it) }
         timeoutRunnable = Runnable { onDismiss() }.also {
             main.postDelayed(it, if (success) autoHideMs else 15_000L)
@@ -246,13 +266,93 @@ class OverlayController(
     fun hide() {
         timeoutRunnable?.let { main.removeCallbacks(it) }
         timeoutRunnable = null
-        val v = root ?: return
+        statusIndicator?.stopAnimation()
+        val view = root ?: return
         root = null
-        v.animate().alpha(0f).translationY(dpF(-28f)).setDuration(170).withEndAction {
+        pillView = null
+        subtitleView = null
+        statusIndicator = null
+        view.animate().alpha(0f).translationY(dpF(-10f)).setDuration(160).withEndAction {
             try {
-                wm.removeView(v)
+                wm.removeView(view)
             } catch (_: Exception) {
             }
         }.start()
+    }
+
+    private enum class IndicatorMode { NONE, OK, CONNECTING, CONNECTED, ERROR }
+
+    private inner class StatusIndicatorView(context: Context) : View(context) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            strokeCap = Paint.Cap.ROUND
+        }
+        private var angle = 0f
+        private var animator: ValueAnimator? = null
+
+        var mode: IndicatorMode = IndicatorMode.NONE
+            set(value) {
+                if (field == value) return
+                field = value
+                if (value == IndicatorMode.CONNECTING) startAnimation() else stopAnimation()
+                invalidate()
+            }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width / 2f
+            val cy = height / 2f
+            when (mode) {
+                IndicatorMode.NONE -> Unit
+                IndicatorMode.OK -> {
+                    paint.color = TEXT_SECONDARY
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = dpF(1.25f)
+                    canvas.drawCircle(cx, cy, dpF(4.7f), paint)
+                    paint.style = Paint.Style.FILL
+                    canvas.drawCircle(cx, cy, dpF(1.15f), paint)
+                }
+                IndicatorMode.CONNECTING -> {
+                    paint.color = TEXT_SECONDARY
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = dpF(1.4f)
+                    val inset = dpF(1.6f)
+                    canvas.drawArc(RectF(inset, inset, width - inset, height - inset), angle, 255f, false, paint)
+                }
+                IndicatorMode.CONNECTED -> {
+                    paint.color = GREEN
+                    paint.style = Paint.Style.FILL
+                    canvas.drawCircle(cx, cy, dpF(2.8f), paint)
+                }
+                IndicatorMode.ERROR -> {
+                    paint.color = RED
+                    paint.style = Paint.Style.FILL
+                    canvas.drawCircle(cx, cy, dpF(2.8f), paint)
+                }
+            }
+        }
+
+        private fun startAnimation() {
+            if (animator?.isRunning == true) return
+            animator = ValueAnimator.ofFloat(0f, 360f).apply {
+                duration = 780
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                addUpdateListener {
+                    angle = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
+        }
+
+        fun stopAnimation() {
+            animator?.cancel()
+            animator = null
+        }
+
+        override fun onDetachedFromWindow() {
+            stopAnimation()
+            super.onDetachedFromWindow()
+        }
     }
 }

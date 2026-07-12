@@ -441,7 +441,7 @@ class BleScanService : Service() {
             val ov = OverlayController(this, onConnect = {}, onDismiss = { dismissPopup() })
             overlay = ov
             ov.show(prefs.displayName ?: "AirPods", 4, withButtons = false)
-            ov.setSubtitle("Connected ✓", 0xFF3ACB74.toInt())
+            ov.setSubtitle("Connected", 0xFF64D987.toInt())
         }
     }
 
@@ -500,9 +500,10 @@ class BleScanService : Service() {
                 }
             }
             if (parts.isEmpty()) return
-            AapBus.batteryLine = parts.joinToString(" · ")
+            val batteryLine = parts.joinToString(" · ")
+            AapBus.batteryLine = batteryLine
             AapBus.notifyChanged()
-            overlay?.setSubtitle("✓ ${AapBus.batteryLine}", 0xFF3ACB74.toInt())
+            overlay?.setSubtitle(batteryLine, 0xFF64D987.toInt())
         }
 
         override fun onEar(primaryInEar: Boolean, secondaryInEar: Boolean, anyInCase: Boolean) {

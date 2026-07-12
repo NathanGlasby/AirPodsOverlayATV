@@ -27,9 +27,13 @@ under GPL-3.0.
 | [AndroidHiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) (org.lsposed.hiddenapibypass) | Apache-2.0 |
 | Kotlin standard library (JetBrains) | Apache-2.0 |
 
-## Icons
+## Images and icons
 
-The AirPods image shown in the connect popup (`app/src/main/res/drawable-nodpi/airpods4.png`)
-is by [Icons8](https://icons8.com) and is used under the Icons8 free license, which
-requires this attribution link. It is a bundled asset, not part of the GPL-licensed
-source code.
+The AirPods 4 product image shown in the connect popup
+(`app/src/main/res/drawable-nodpi/airpods4_photo.png`) is courtesy of iStore
+United Kingdom. It remains separate from the GPL-licensed source code.
+
+The bundled fallback AirPods icon (`app/src/main/res/drawable-nodpi/airpods4.png`)
+is by [Icons8](https://icons8.com) and is used under the Icons8 free license,
+which requires this attribution link. It is not part of the GPL-licensed source
+code.

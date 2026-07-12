@@ -38,11 +38,14 @@ Their license (GNU GPL v3) is included in full below.
 
 
 =====================================================================
-ICONS
+IMAGES AND ICONS
 =====================================================================
 
-The AirPods image shown in the connect popup is by Icons8
-(https://icons8.com), used under the Icons8 free license.
+The AirPods 4 product image shown in the connect popup is courtesy of
+iStore United Kingdom.
+
+The bundled fallback AirPods icon is by Icons8 (https://icons8.com),
+used under the Icons8 free license.
 
 
 =====================================================================

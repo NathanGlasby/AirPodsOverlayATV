@@ -182,7 +182,7 @@
 
         <TextView
             style="@style/StatusLine"
-            android:text="Free software under GPL-3.0. AirPods icon by Icons8 (icons8.com)." />
+            android:text="Free software under GPL-3.0. AirPods 4 product image courtesy of iStore United Kingdom. Additional icon by Icons8." />
 
         <Button
             android:id="@+id/licensesBtn"
