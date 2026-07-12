@@ -51,7 +51,7 @@ class Prefs(context: Context) {
 
     /** Only react to beacons matching the AirPods 4 ANC model id. */
     var modelFilter: Boolean
-        get() = sp.getBoolean("model_filter", true)
+        get() = sp.getBoolean("model_filter", false)
         set(v) = sp.edit().putBoolean("model_filter", v).apply()
 
     /** Pause TV playback when a pod is taken out of the ear; resume when back in. */
@@ -74,10 +74,22 @@ class Prefs(context: Context) {
     /** Identity Resolving Key captured from the AirPods via AAP key exchange (hex). */
     var irkHex: String?
         get() = sp.getString("irk_hex", null)?.takeIf { it.length == 32 }
-        set(v) = sp.edit().putString("irk_hex", v).apply()
+        set(v) {
+            val normalized = v?.uppercase()
+            val changed = sp.getString("irk_hex", null) != normalized
+            sp.edit()
+                .putString("irk_hex", normalized)
+                .also { if (changed) it.putBoolean("irk_verified", false) }
+                .apply()
+        }
+
+    /** True only after [irkHex] has successfully resolved a live beacon address. */
+    var irkVerified: Boolean
+        get() = irkHex != null && sp.getBoolean("irk_verified", false)
+        set(v) = sp.edit().putBoolean("irk_verified", v && irkHex != null).apply()
 
     /** When the IRK is known, only react to beacons cryptographically proven to be ours. */
     var identityFilter: Boolean
-        get() = sp.getBoolean("identity_filter", true)
+        get() = sp.getBoolean("identity_filter", false)
         set(v) = sp.edit().putBoolean("identity_filter", v).apply()
 }

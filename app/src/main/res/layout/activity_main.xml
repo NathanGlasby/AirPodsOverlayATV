@@ -100,12 +100,12 @@
         <Switch
             android:id="@+id/modelFilterSwitch"
             style="@style/TvSwitch"
-            android:text="Only react to AirPods 4 (ANC) beacons" />
+            android:text="Strict filter: only AirPods 4 (ANC) beacons" />
 
         <Switch
             android:id="@+id/identitySwitch"
             style="@style/TvSwitch"
-            android:text="Only my AirPods (identity key match)" />
+            android:text="Strict filter: only my AirPods (verified identity key)" />
 
         <Switch
             android:id="@+id/autoPauseSwitch"
@@ -165,7 +165,7 @@
 
         <TextView
             style="@style/StatusLine"
-            android:text="● = strong enough to trigger, ○ = too weak/filtered. Open your AirPods case nearby to see it broadcast." />
+            android:text="● = accepted, ○ = rejected. Each line now shows the exact filter reason. Open or wake your AirPods case nearby." />
 
         <TextView
             android:id="@+id/debugText"

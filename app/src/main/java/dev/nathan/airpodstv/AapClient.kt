@@ -109,7 +109,7 @@ class AapClient(
     }
 
     private fun createSocket(): BluetoothSocket {
-        // Hidden BR/EDR L2CAP constructor — same approach as CAPod's L2capSocketFactory.
+        // Hidden BR/EDR L2CAP constructor, using the same approach as CAPod's L2capSocketFactory.
         HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/")
         val method = BluetoothDevice::class.java.getDeclaredMethod(
             "createInsecureL2capSocket", Int::class.javaPrimitiveType

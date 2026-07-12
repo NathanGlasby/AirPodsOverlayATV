@@ -56,6 +56,32 @@ object BeaconParser {
         0x0620 to "Beats Solo 3",
     )
 
+    internal data class CaseState(
+        val thisPodInCase: Boolean,
+        val podsInCase: Boolean,
+        val lidState: LidState,
+    )
+
+    internal fun decodeCaseState(status: Int, lidByte: Int): CaseState {
+        val thisPodInCase = (status and 0x40) != 0
+        val onePodInCase = (status and 0x10) != 0
+        val bothInCase = (status and 0x04) != 0
+        val anyPodInCase = thisPodInCase || onePodInCase || bothInCase
+        val broadcastingPodInCase = thisPodInCase || bothInCase
+
+        // The lid bit is trustworthy only from a pod broadcasting inside the case,
+        // or while both pods are in it. A bit-4-only frame comes from the pod outside
+        // the case and can carry a stale lid byte.
+        val lidReadingReliable = thisPodInCase || bothInCase
+        val lidState = when {
+            !anyPodInCase -> LidState.UNKNOWN
+            !lidReadingReliable -> LidState.UNKNOWN
+            (lidByte shr 3) and 1 == 0 -> LidState.OPEN
+            else -> LidState.CLOSED
+        }
+        return CaseState(thisPodInCase, broadcastingPodInCase, lidState)
+    }
+
     fun parse(result: ScanResult): Beacon? {
         val data = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID) ?: return null
         if (data.size < 11) return null
@@ -69,9 +95,9 @@ object BeaconParser {
 
         // Status bit 5 set = left pod is primary; unset = values are flipped.
         val flipped = (status and 0x20) == 0
-        val thisPodInCase = (status and 0x40) != 0
-        val bothInCase = (status and 0x04) != 0
-        val podsInCase = thisPodInCase || bothInCase
+        val caseState = decodeCaseState(status, lidByte)
+        val thisPodInCase = caseState.thisPodInCase
+        val podsInCase = caseState.podsInCase
 
         // 15 = unknown; 11..14 are anomalous frames (CAPod logs these as ">100%"),
         // safer to drop them than to show a phantom 100%.
@@ -97,18 +123,11 @@ object BeaconParser {
         val leftInEar = (status and (if (earFlip) 0x08 else 0x02)) != 0
         val rightInEar = (status and (if (earFlip) 0x02 else 0x08)) != 0
 
-        // Lid bit is only meaningful while the broadcasting pod is in the case.
-        val lidState = when {
-            !podsInCase -> LidState.UNKNOWN
-            (lidByte shr 3) and 1 == 0 -> LidState.OPEN
-            else -> LidState.CLOSED
-        }
-
         return Beacon(
             address = result.device?.address ?: "?",
             rssi = result.rssi,
             model = model,
-            lidState = lidState,
+            lidState = caseState.lidState,
             podsInCase = podsInCase,
             statusByte = status,
             lidByte = lidByte,

@@ -14,7 +14,7 @@ import android.util.Log
 
 /**
  * Connects an already-paired Bluetooth classic audio device (A2DP + HFP) using the
- * hidden connect()/setConnectionPolicy() APIs via reflection — the same approach
+ * hidden connect()/setConnectionPolicy() APIs via reflection, the same approach
  * used by Bluetooth auto-connect apps.
  */
 @SuppressLint("MissingPermission")
@@ -148,7 +148,7 @@ class ProfileConnector(private val context: Context) {
             main.post { callback(false) }
             return
         }
-        // A forbidden connection policy makes connect() a no-op — allow first.
+        // A forbidden connection policy makes connect() a no-op, so allow it first.
         setAutoConnectAllowed(address, true)
         var kicked = false
         kicked = connectProfile(a2dp, device) || kicked
