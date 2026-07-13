@@ -18,10 +18,10 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
@@ -44,6 +44,7 @@ class BleScanService : Service() {
         const val ACTION_TEST_POPUP = "dev.nathan.airpodstv.TEST_POPUP"
         const val ACTION_APPLY_POLICY = "dev.nathan.airpodstv.APPLY_POLICY"
         const val ACTION_DEVICE_CHANGED = "dev.nathan.airpodstv.DEVICE_CHANGED"
+        const val ACTION_RESTORE_POLICY = "dev.nathan.airpodstv.RESTORE_POLICY"
         private const val EXTRA_OLD_DEVICE_ADDRESS = "old_device_address"
 
         /** Connections within this window of a popup Connect are considered user-initiated. */
@@ -67,9 +68,16 @@ class BleScanService : Service() {
         /** AirPods 4 (ANC) model id. The model filter reacts only to this. */
         private const val MODEL_AIRPODS_4_ANC = 0x1B20
 
-        fun start(context: Context, action: String = ACTION_START) {
-            val i = Intent(context, BleScanService::class.java).setAction(action)
-            context.startForegroundService(i)
+        fun start(context: Context, action: String = ACTION_START): Boolean {
+            return try {
+                val i = Intent(context, BleScanService::class.java).setAction(action)
+                context.startForegroundService(i)
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Unable to start foreground scanner", e)
+                Prefs(context).serviceStatus = "Scanner could not start: ${e.javaClass.simpleName}"
+                false
+            }
         }
 
         fun stop(context: Context) {
@@ -111,11 +119,13 @@ class BleScanService : Service() {
             when (intent.action) {
                 BluetoothDevice.ACTION_ACL_CONNECTED -> {
                     val userInitiated =
-                        System.currentTimeMillis() - connectRequestedAt < USER_CONNECT_WINDOW_MS
+                        SystemClock.elapsedRealtime() - connectRequestedAt < USER_CONNECT_WINDOW_MS
                     if (prefs.blockAutoConnect && !userInitiated) {
                         Log.i(TAG, "OS auto-connected ${device.address}; blocking")
                         // Forbidding the policy also makes the OS drop the link.
-                        connector.setAutoConnectAllowed(prefs.deviceAddress, false)
+                        if (connector.setAutoConnectAllowed(prefs.deviceAddress, false)) {
+                            prefs.connectionPolicyBlocked = true
+                        }
                         connector.disconnect(prefs.deviceAddress)
                     } else {
                         onDeviceConnected()
@@ -127,7 +137,9 @@ class BleScanService : Service() {
                     // Re-arm the block once the user-approved session ends.
                     if (prefs.blockAutoConnect) {
                         main.postDelayed({
-                            connector.setAutoConnectAllowed(prefs.deviceAddress, false)
+                            if (connector.setAutoConnectAllowed(prefs.deviceAddress, false)) {
+                                prefs.connectionPolicyBlocked = true
+                            }
                         }, 1500L)
                     }
                 }
@@ -138,16 +150,29 @@ class BleScanService : Service() {
     /** FORBIDDEN would kick an active session, so only apply the block while disconnected. */
     private fun applyConnectionPolicy() {
         val addr = prefs.deviceAddress ?: return
-        if (prefs.blockAutoConnect) {
-            if (!connector.isConnected(addr)) connector.setAutoConnectAllowed(addr, false)
-        } else {
-            connector.setAutoConnectAllowed(addr, true)
+        when (ConnectionPolicyPlan.decide(prefs.blockAutoConnect, connector.isConnected(addr))) {
+            ConnectionPolicyPlan.Action.BLOCK_WHEN_READY -> {
+                connector.setAutoConnectAllowedWhenReady(addr, false) { ok ->
+                    prefs.connectionPolicyBlocked = ok
+                    prefs.serviceStatus = if (ok) "TV auto-connect is blocked" else
+                        "Could not change the TV auto-connect policy"
+                }
+            }
+            ConnectionPolicyPlan.Action.RESTORE_WHEN_READY -> {
+                connector.setAutoConnectAllowedWhenReady(addr, true) { ok ->
+                    if (ok) prefs.connectionPolicyBlocked = false
+                    prefs.serviceStatus = if (ok) "TV auto-connect is restored" else
+                        "Could not restore the TV auto-connect policy"
+                }
+            }
+            ConnectionPolicyPlan.Action.DEFER_UNTIL_DISCONNECTED ->
+                prefs.serviceStatus = "TV auto-connect block deferred until disconnect"
         }
     }
 
     private val ticker = object : Runnable {
         override fun run() {
-            val now = System.currentTimeMillis()
+            val now = SystemClock.elapsedRealtime()
             val lastBeaconAt = popupSession.lastBeaconAt
             if (overlay?.isShowing == true && !popupIsTest && lastBeaconAt != 0L &&
                 now - lastBeaconAt > BEACON_GONE_MS
@@ -201,7 +226,8 @@ class BleScanService : Service() {
         override fun onScanFailed(errorCode: Int) {
             Log.e(TAG, "Scan failed: $errorCode")
             scanner = null
-            nextScanRetryAt = System.currentTimeMillis() + SCAN_RETRY_MS
+            prefs.serviceStatus = "BLE scan failed (code $errorCode); retrying"
+            nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
         }
     }
 
@@ -213,6 +239,7 @@ class BleScanService : Service() {
         refreshIrk()
         connector = ProfileConnector(this)
         connector.open()
+        prefs.serviceStatus = "Scanner starting"
         startForeground(NOTIF_ID, buildNotification())
         registerReceiver(aclReceiver, IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
@@ -238,7 +265,9 @@ class BleScanService : Service() {
             ACTION_DEVICE_CHANGED -> {
                 val oldAddress = intent.getStringExtra(EXTRA_OLD_DEVICE_ADDRESS)
                 if (prefs.blockAutoConnect && oldAddress != null) {
-                    connector.setAutoConnectAllowed(oldAddress, true)
+                    if (connector.setAutoConnectAllowed(oldAddress, true)) {
+                        prefs.connectionPolicyBlocked = false
+                    }
                 }
                 stopAap()
                 popupSession.reset()
@@ -247,6 +276,11 @@ class BleScanService : Service() {
                 lastBothInEar = null
                 earStreak = 0
                 main.postDelayed({ applyConnectionPolicy() }, 500L)
+            }
+            ACTION_RESTORE_POLICY -> {
+                prefs.blockAutoConnect = false
+                applyConnectionPolicy()
+                if (!prefs.enabled) main.postDelayed({ stopSelf() }, 4_000L)
             }
         }
         refreshIrk()
@@ -279,7 +313,9 @@ class BleScanService : Service() {
         // With the app inactive there is no popup to connect through. Restore
         // stock auto-connect behavior rather than leaving the AirPods blocked.
         if (prefs.blockAutoConnect) {
-            connector.setAutoConnectAllowed(prefs.deviceAddress, true)
+            if (connector.setAutoConnectAllowed(prefs.deviceAddress, true)) {
+                prefs.connectionPolicyBlocked = false
+            }
         }
         connector.close()
         super.onDestroy()
@@ -292,13 +328,13 @@ class BleScanService : Service() {
         val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         if (adapter == null || !adapter.isEnabled) {
             Log.w(TAG, "Bluetooth is off; cannot scan")
-            nextScanRetryAt = System.currentTimeMillis() + SCAN_RETRY_MS
+            nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
             return
         }
         val bleScanner = adapter.bluetoothLeScanner
         if (bleScanner == null) {
             Log.w(TAG, "BLE scanner unavailable; will retry")
-            nextScanRetryAt = System.currentTimeMillis() + SCAN_RETRY_MS
+            nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
             return
         }
         scanner = bleScanner
@@ -312,11 +348,13 @@ class BleScanService : Service() {
         try {
             bleScanner.startScan(listOf(filter), settings, scanCallback)
             nextScanRetryAt = 0L
+            prefs.serviceStatus = "BLE scan is active"
             Log.i(TAG, "BLE scan started")
         } catch (e: Exception) {
             Log.e(TAG, "startScan failed", e)
             scanner = null
-            nextScanRetryAt = System.currentTimeMillis() + SCAN_RETRY_MS
+            prefs.serviceStatus = "BLE scan could not start: ${e.javaClass.simpleName}"
+            nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
         }
     }
 
@@ -329,7 +367,7 @@ class BleScanService : Service() {
     }
 
     private fun handleBeacon(beacon: BeaconParser.Beacon) {
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         latestBeacon = beacon
 
         // In-ear transitions (only meaningful from a pod that's out of the case);
@@ -372,9 +410,12 @@ class BleScanService : Service() {
         val ov = OverlayController(
             this,
             onConnect = {
-                connectRequestedAt = System.currentTimeMillis()
-                connector.connect(prefs.deviceAddress) { ok ->
-                    overlay?.setResult(ok)
+                connectRequestedAt = SystemClock.elapsedRealtime()
+                prefs.connectionPolicyBlocked = false
+                connector.connect(prefs.deviceAddress) { result ->
+                    val ok = result is ProfileConnector.ConnectResult.Success
+                    overlay?.setResult(ok, message = result.message)
+                    prefs.serviceStatus = result.message
                     if (ok) popupSession.suppress()
                 }
             },
@@ -384,12 +425,19 @@ class BleScanService : Service() {
             },
         )
         overlay = ov
-        ov.show(name, prefs.popupTimeoutSec)
+        if (!ov.show(name, prefs.popupTimeoutSec)) {
+            overlay = null
+            prefs.serviceStatus = "Overlay permission is unavailable"
+            return
+        }
         if (!testMode && prefs.autoConnect) {
             ov.setConnecting()
-            connectRequestedAt = System.currentTimeMillis()
-            connector.connect(prefs.deviceAddress) { ok ->
-                overlay?.setResult(ok)
+            connectRequestedAt = SystemClock.elapsedRealtime()
+            prefs.connectionPolicyBlocked = false
+            connector.connect(prefs.deviceAddress) { result ->
+                val ok = result is ProfileConnector.ConnectResult.Success
+                overlay?.setResult(ok, message = result.message)
+                prefs.serviceStatus = result.message
                 if (ok) popupSession.suppress()
             }
         }
@@ -440,8 +488,12 @@ class BleScanService : Service() {
         if (overlay?.isShowing != true && Settings.canDrawOverlays(this)) {
             val ov = OverlayController(this, onConnect = {}, onDismiss = { dismissPopup() })
             overlay = ov
-            ov.show(prefs.displayName ?: "AirPods", 4, withButtons = false)
-            ov.setSubtitle("Connected", 0xFF64D987.toInt())
+            if (ov.show(prefs.displayName ?: "AirPods", 4, withButtons = false)) {
+                ov.setSubtitle("Connected", 0xFF64D987.toInt())
+            } else {
+                overlay = null
+                prefs.serviceStatus = "Connected; overlay permission is unavailable"
+            }
         }
     }
 
@@ -543,9 +595,7 @@ class BleScanService : Service() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE
         )
-        val builder = if (Build.VERSION.SDK_INT >= 26)
-            Notification.Builder(this, CHANNEL_ID) else @Suppress("DEPRECATION") Notification.Builder(this)
-        return builder
+        return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle("AirPods Overlay")
             .setContentText("Watching for your AirPods case")

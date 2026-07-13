@@ -47,6 +47,8 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
     private lateinit var ancButtons: Map<Int, Button>
     private lateinit var testBtn: Button
     private lateinit var debugText: TextView
+    private lateinit var policyStatus: TextView
+    private lateinit var restorePolicyBtn: Button
 
     private val debugLines = ArrayDeque<String>()
     private var refreshingUi = false
@@ -112,6 +114,18 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         }
         testBtn = findViewById(R.id.testBtn)
         debugText = findViewById(R.id.debugText)
+        policyStatus = findViewById(R.id.policyStatus)
+        restorePolicyBtn = findViewById(R.id.restorePolicyBtn)
+        restorePolicyBtn.setOnClickListener {
+            prefs.blockAutoConnect = false
+            blockAutoSwitch.isChecked = false
+            if (BleScanService.start(this, BleScanService.ACTION_RESTORE_POLICY)) {
+                toast("Restoring the TV's normal auto-connect policy")
+            } else {
+                toast("The recovery service could not start; reopen the app and try again")
+            }
+            refreshUi()
+        }
 
         findViewById<Button>(R.id.licensesBtn).setOnClickListener {
             startActivity(Intent(this, LicensesActivity::class.java))
@@ -191,6 +205,7 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         identitySwitch.isEnabled = irkCaptured
 
         ancButtons.forEach { (wireMode, button) ->
+            button.isEnabled = AapBus.sessionActive
             button.setTextColor(
                 if (AapBus.ancMode == wireMode) 0xFF4C8DFF.toInt() else 0xFFF2F2F5.toInt()
             )
@@ -351,6 +366,19 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         autoPauseSwitch.isChecked = prefs.autoPause
         autoDisconnectSwitch.isChecked = prefs.autoDisconnectOnLidClose
         aapSwitch.isChecked = prefs.aapEnabled
+        policyStatus.text = when {
+            prefs.connectionPolicyBlocked -> "Recovery available  •  TV auto-connect is currently blocked"
+            prefs.blockAutoConnect -> "Active  •  This app will block the TV's automatic connection"
+            else -> "Ready  •  The TV can use its normal auto-connect behavior"
+        }
+        restorePolicyBtn.visibility = if (prefs.connectionPolicyBlocked || prefs.blockAutoConnect) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+        prefs.serviceStatus?.let { status ->
+            if (status.isNotBlank()) policyStatus.append("\nLast service state: $status")
+        }
         updateRssiLabel()
         updateRenameLabel()
         populateDevices()

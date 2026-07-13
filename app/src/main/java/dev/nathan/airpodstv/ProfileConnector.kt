@@ -20,6 +20,23 @@ import android.util.Log
 @SuppressLint("MissingPermission")
 class ProfileConnector(private val context: Context) {
 
+    sealed class ConnectResult {
+        data object Success : ConnectResult()
+        data object DeviceNotPaired : ConnectResult()
+        data object ProfilesUnavailable : ConnectResult()
+        data object RequestRejected : ConnectResult()
+        data object TimedOut : ConnectResult()
+
+        val message: String
+            get() = when (this) {
+                Success -> "Connected"
+                DeviceNotPaired -> "AirPods are no longer paired"
+                ProfilesUnavailable -> "TV Bluetooth audio service is not ready"
+                RequestRejected -> "TV rejected the Bluetooth connection"
+                TimedOut -> "Connection timed out"
+            }
+    }
+
     companion object {
         private const val TAG = "ProfileConnector"
         private const val CONNECTION_POLICY_ALLOWED = 100
@@ -31,8 +48,11 @@ class ProfileConnector(private val context: Context) {
     private var a2dp: BluetoothA2dp? = null
     private var headset: BluetoothHeadset? = null
     private val main = Handler(Looper.getMainLooper())
+    private var opened = false
 
     fun open() {
+        if (opened) return
+        opened = true
         val ad = adapter ?: return
         try {
             ad.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
@@ -57,6 +77,8 @@ class ProfileConnector(private val context: Context) {
     }
 
     fun close() {
+        opened = false
+        main.removeCallbacksAndMessages(null)
         try {
             a2dp?.let { adapter?.closeProfileProxy(BluetoothProfile.A2DP, it) }
             headset?.let { adapter?.closeProfileProxy(BluetoothProfile.HEADSET, it) }
@@ -92,10 +114,13 @@ class ProfileConnector(private val context: Context) {
      * for this device until re-allowed. Note: forbidding while connected causes
      * the OS to disconnect the device.
      */
-    fun setAutoConnectAllowed(address: String?, allowed: Boolean) {
-        val device = bondedDevice(address) ?: return
+    fun setAutoConnectAllowed(address: String?, allowed: Boolean): Boolean {
+        val device = bondedDevice(address) ?: return false
         val value = if (allowed) CONNECTION_POLICY_ALLOWED else 0
-        for (proxy in listOfNotNull<BluetoothProfile>(a2dp, headset)) {
+        val proxies = listOfNotNull<BluetoothProfile>(a2dp, headset)
+        if (proxies.isEmpty()) return false
+        var allSucceeded = true
+        for (proxy in proxies) {
             var done = false
             try {
                 val m = proxy.javaClass.getMethod(
@@ -117,10 +142,32 @@ class ProfileConnector(private val context: Context) {
                 m.isAccessible = true
                 val ok = m.invoke(proxy, device, value)
                 Log.i(TAG, "${proxy.javaClass.simpleName}.setPriority($value) -> $ok")
+                done = ok == true
             } catch (e: Exception) {
                 Log.w(TAG, "setPriority failed: $e")
             }
+            if (!done) allSucceeded = false
         }
+        return allSucceeded
+    }
+
+    fun setAutoConnectAllowedWhenReady(
+        address: String?,
+        allowed: Boolean,
+        timeoutMs: Long = 3_000L,
+        callback: (Boolean) -> Unit = {},
+    ) {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        lateinit var attempt: Runnable
+        attempt = Runnable {
+            when {
+                !opened -> callback(false)
+                a2dp != null || headset != null -> callback(setAutoConnectAllowed(address, allowed))
+                android.os.SystemClock.elapsedRealtime() - startedAt >= timeoutMs -> callback(false)
+                else -> main.postDelayed(attempt, 100L)
+            }
+        }
+        main.post(attempt)
     }
 
     /** Disconnects both audio profiles via the hidden disconnect(BluetoothDevice). */
@@ -142,12 +189,37 @@ class ProfileConnector(private val context: Context) {
      * Kicks off connection to both audio profiles; polls the connection state and
      * reports success/failure on the main thread within [timeoutMs].
      */
-    fun connect(address: String?, timeoutMs: Long = 12_000, callback: (Boolean) -> Unit) {
+    fun connect(
+        address: String?,
+        timeoutMs: Long = 12_000,
+        profileReadyTimeoutMs: Long = 3_000,
+        callback: (ConnectResult) -> Unit,
+    ) {
         val device = bondedDevice(address)
         if (device == null) {
-            main.post { callback(false) }
+            main.post { callback(ConnectResult.DeviceNotPaired) }
             return
         }
+        val readyStartedAt = android.os.SystemClock.elapsedRealtime()
+        lateinit var awaitProfiles: Runnable
+        awaitProfiles = Runnable {
+            when {
+                !opened -> callback(ConnectResult.ProfilesUnavailable)
+                a2dp != null || headset != null -> connectReady(device, address, timeoutMs, callback)
+                android.os.SystemClock.elapsedRealtime() - readyStartedAt >= profileReadyTimeoutMs ->
+                    callback(ConnectResult.ProfilesUnavailable)
+                else -> main.postDelayed(awaitProfiles, 100L)
+            }
+        }
+        main.post(awaitProfiles)
+    }
+
+    private fun connectReady(
+        device: BluetoothDevice,
+        address: String?,
+        timeoutMs: Long,
+        callback: (ConnectResult) -> Unit,
+    ) {
         // A forbidden connection policy makes connect() a no-op, so allow it first.
         setAutoConnectAllowed(address, true)
         var kicked = false
@@ -155,15 +227,15 @@ class ProfileConnector(private val context: Context) {
         kicked = connectProfile(headset, device) || kicked
         if (!kicked) {
             Log.w(TAG, "No profile connect method worked")
-            main.post { callback(false) }
+            main.post { callback(ConnectResult.RequestRejected) }
             return
         }
-        val start = System.currentTimeMillis()
+        val start = android.os.SystemClock.elapsedRealtime()
         lateinit var poll: Runnable
         poll = Runnable {
             when {
-                isConnected(address) -> callback(true)
-                System.currentTimeMillis() - start > timeoutMs -> callback(false)
+                isConnected(address) -> callback(ConnectResult.Success)
+                android.os.SystemClock.elapsedRealtime() - start > timeoutMs -> callback(ConnectResult.TimedOut)
                 else -> main.postDelayed(poll, 500)
             }
         }

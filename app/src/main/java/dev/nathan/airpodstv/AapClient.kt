@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import org.lsposed.hiddenapibypass.HiddenApiBypass
+import java.util.concurrent.Executors
 
 /**
  * Minimal AAP (Apple Accessory Protocol) client over a BR/EDR L2CAP socket (PSM 0x1001).
@@ -15,7 +16,7 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
  *
  * Packet formats from librepods' protocol docs + CAPod's DefaultAapDeviceProfile.
  */
-@SuppressLint("MissingPermission")
+@SuppressLint("MissingPermission", "SoonBlockedPrivateApi")
 class AapClient(
     private val device: BluetoothDevice,
     private val listener: Listener,
@@ -62,6 +63,10 @@ class AapClient(
     }
 
     private val main = Handler(Looper.getMainLooper())
+    private val writer = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "AapWriter")
+    }
+    private val framer = AapPacketFramer()
 
     @Volatile
     private var socket: BluetoothSocket? = null
@@ -79,6 +84,7 @@ class AapClient(
 
     fun stop() {
         running = false
+        writer.shutdownNow()
         try {
             socket?.close()
         } catch (_: Exception) {
@@ -96,7 +102,8 @@ class AapClient(
     }
 
     private fun send(data: ByteArray) {
-        Thread {
+        if (writer.isShutdown) return
+        writer.execute {
             try {
                 socket?.outputStream?.let {
                     it.write(data)
@@ -105,7 +112,7 @@ class AapClient(
             } catch (e: Exception) {
                 Log.w(TAG, "send failed: $e")
             }
-        }.start()
+        }
     }
 
     private fun createSocket(): BluetoothSocket {
@@ -141,10 +148,12 @@ class AapClient(
             while (running) {
                 val n = sock.inputStream.read(buf)
                 if (n <= 0) break
-                try {
-                    parseMessage(buf.copyOf(n))
-                } catch (e: Exception) {
-                    Log.w(TAG, "parse error: $e")
+                for (packet in framer.feed(buf.copyOf(n))) {
+                    try {
+                        parseMessage(packet)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "parse error: $e")
+                    }
                 }
             }
         } catch (e: Exception) {

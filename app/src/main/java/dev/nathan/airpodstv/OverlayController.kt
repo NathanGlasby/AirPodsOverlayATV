@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
@@ -65,8 +66,9 @@ class OverlayController(
     /**
      * @param withButtons false shows a transient, non-focusable information pill.
      */
-    fun show(deviceName: String, timeoutSec: Int, withButtons: Boolean = true) {
-        if (isShowing) return
+    fun show(deviceName: String, timeoutSec: Int, withButtons: Boolean = true): Boolean {
+        if (isShowing) return true
+        if (!Settings.canDrawOverlays(context)) return false
         canConnect = withButtons
 
         val pill = LinearLayout(context).apply {
@@ -177,8 +179,6 @@ class OverlayController(
                 }
             }
         }
-        root = container
-
         var windowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
         if (!withButtons) {
             windowFlags = windowFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -195,7 +195,19 @@ class OverlayController(
             y = dp(10)
         }
 
-        wm.addView(container, params)
+        try {
+            wm.addView(container, params)
+        } catch (_: SecurityException) {
+            clearViewReferences()
+            return false
+        } catch (_: WindowManager.BadTokenException) {
+            clearViewReferences()
+            return false
+        } catch (_: WindowManager.InvalidDisplayException) {
+            clearViewReferences()
+            return false
+        }
+        root = container
 
         container.alpha = 0f
         container.translationY = dpF(-10f)
@@ -210,6 +222,7 @@ class OverlayController(
         timeoutRunnable = Runnable { onDismiss() }.also {
             main.postDelayed(it, timeoutSec * 1000L)
         }
+        return true
     }
 
     private fun pillBackground(): StateListDrawable {
@@ -248,10 +261,10 @@ class OverlayController(
         timeoutRunnable = Runnable { onDismiss() }.also { main.postDelayed(it, 30_000L) }
     }
 
-    fun setResult(success: Boolean, autoHideMs: Long = 2500L) {
+    fun setResult(success: Boolean, autoHideMs: Long = 2500L, message: String? = null) {
         canConnect = !success
         subtitleView?.apply {
-            text = if (success) "Connected" else "Failed · Press OK to retry"
+            text = if (success) "Connected" else (message ?: "Failed") + " · Press OK to retry"
             setTextColor(if (success) GREEN else RED)
         }
         statusIndicator?.mode = if (success) IndicatorMode.CONNECTED else IndicatorMode.ERROR
@@ -268,16 +281,20 @@ class OverlayController(
         timeoutRunnable = null
         statusIndicator?.stopAnimation()
         val view = root ?: return
-        root = null
-        pillView = null
-        subtitleView = null
-        statusIndicator = null
+        clearViewReferences()
         view.animate().alpha(0f).translationY(dpF(-10f)).setDuration(160).withEndAction {
             try {
                 wm.removeView(view)
             } catch (_: Exception) {
             }
         }.start()
+    }
+
+    private fun clearViewReferences() {
+        root = null
+        pillView = null
+        subtitleView = null
+        statusIndicator = null
     }
 
     private enum class IndicatorMode { NONE, OK, CONNECTING, CONNECTED, ERROR }
@@ -287,6 +304,7 @@ class OverlayController(
             strokeCap = Paint.Cap.ROUND
         }
         private var angle = 0f
+        private val arcBounds = RectF()
         private var animator: ValueAnimator? = null
 
         var mode: IndicatorMode = IndicatorMode.NONE
@@ -316,7 +334,8 @@ class OverlayController(
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = dpF(1.4f)
                     val inset = dpF(1.6f)
-                    canvas.drawArc(RectF(inset, inset, width - inset, height - inset), angle, 255f, false, paint)
+                    arcBounds.set(inset, inset, width - inset, height - inset)
+                    canvas.drawArc(arcBounds, angle, 255f, false, paint)
                 }
                 IndicatorMode.CONNECTED -> {
                     paint.color = GREEN

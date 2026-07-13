@@ -17,8 +17,18 @@ class Prefs(context: Context) {
 
     /** Forbid the OS from auto-connecting the AirPods; connect only via the popup. */
     var blockAutoConnect: Boolean
-        get() = sp.getBoolean("block_auto_connect", true)
+        get() = sp.getBoolean("block_auto_connect", false)
         set(v) = sp.edit().putBoolean("block_auto_connect", v).apply()
+
+    /** True when the app last successfully forbade at least one TV audio profile. */
+    var connectionPolicyBlocked: Boolean
+        get() = sp.getBoolean("connection_policy_blocked", false)
+        set(v) = sp.edit().putBoolean("connection_policy_blocked", v).apply()
+
+    /** Last scanner/policy state shown in Diagnostics after failures or process restarts. */
+    var serviceStatus: String?
+        get() = sp.getString("service_status", null)
+        set(v) = sp.edit().putString("service_status", v).apply()
 
     var deviceAddress: String?
         get() = sp.getString("device_address", null)

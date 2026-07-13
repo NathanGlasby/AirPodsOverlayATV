@@ -84,6 +84,15 @@
             style="@style/TvSwitch"
             android:text="Block the TV's own auto-connect (connect only via popup)" />
 
+        <TextView
+            android:id="@+id/policyStatus"
+            style="@style/StatusLine" />
+
+        <Button
+            android:id="@+id/restorePolicyBtn"
+            style="@style/TvButton"
+            android:text="Restore normal TV auto-connect" />
+
         <Button
             android:id="@+id/rssiBtn"
             style="@style/TvButton"

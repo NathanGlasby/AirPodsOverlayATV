@@ -3,5 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android") version "1.9.24" apply false
 }
 
-// Keep build outputs out of OneDrive because its sync locks files mid-build.
-layout.buildDirectory.set(file("C:/GradleBuilds/AirPodsOverlayATV/root"))
+// Local Windows builds can opt out of OneDrive with -PexternalBuildDir=C:/GradleBuilds/AirPodsOverlayATV.
+providers.gradleProperty("externalBuildDir").orNull?.let {
+    layout.buildDirectory.set(file("$it/root"))
+}
