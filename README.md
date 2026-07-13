@@ -46,13 +46,19 @@ not, the exact rejection reason.
 
 ## Build
 
-Standard Android Gradle project in Kotlin, no wrapper committed:
+Standard Android Gradle project in Kotlin with a pinned Gradle wrapper:
 
 ```
-gradle assembleDebug
+./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
 Requires JDK 17 and an Android SDK (compileSdk 34, minSdk 28).
+
+On a OneDrive checkout, build outside the synchronized folder with
+`-PexternalBuildDir=C:/GradleBuilds/AirPodsOverlayATV`. Tagged releases are signed
+in GitHub Actions using the `AIRPODS_KEYSTORE_B64`, `AIRPODS_KEYSTORE_PASSWORD`,
+`AIRPODS_KEY_ALIAS`, and `AIRPODS_KEY_PASSWORD` repository secrets. The release
+workflow verifies the APK signature and publishes a SHA-256 checksum.
 
 ## How it works
 

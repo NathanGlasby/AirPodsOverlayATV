@@ -3,8 +3,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Keep build outputs out of OneDrive because its sync locks files mid-build.
-layout.buildDirectory.set(file("C:/GradleBuilds/AirPodsOverlayATV/app"))
+providers.gradleProperty("externalBuildDir").orNull?.let {
+    layout.buildDirectory.set(file("$it/app"))
+}
+
+val releaseStorePath = providers.environmentVariable("AIRPODS_KEYSTORE_PATH").orNull
+val releaseStorePassword = providers.environmentVariable("AIRPODS_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("AIRPODS_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("AIRPODS_KEY_PASSWORD").orNull
+val hasReleaseSigning = listOf(
+    releaseStorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "dev.nathan.airpodstv"
@@ -14,14 +26,31 @@ android {
         applicationId = "dev.nathan.airpodstv"
         minSdk = 28
         targetSdk = 34
-        versionCode = 14
-        versionName = "2.4"
+        versionCode = 15
+        versionName = "2.5"
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(checkNotNull(releaseStorePath))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
     }
 
     compileOptions {
@@ -31,6 +60,16 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+}
+
+tasks.register("verifyReleaseSigning") {
+    group = "verification"
+    doLast {
+        check(hasReleaseSigning) {
+            "Release signing requires AIRPODS_KEYSTORE_PATH, AIRPODS_KEYSTORE_PASSWORD, " +
+                "AIRPODS_KEY_ALIAS, and AIRPODS_KEY_PASSWORD."
+        }
     }
 }
 

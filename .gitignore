@@ -12,6 +12,9 @@ local.properties
 # Build outputs
 *.apk
 *.aab
+*.jks
+*.keystore
+release-checksums.txt
 
 # Personal Claude Code notes
 CLAUDE.local.md
