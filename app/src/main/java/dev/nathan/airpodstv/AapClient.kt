@@ -8,6 +8,7 @@ import android.os.Looper
 import android.util.Log
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Minimal AAP (Apple Accessory Protocol) client over a BR/EDR L2CAP socket (PSM 0x1001).
@@ -103,15 +104,19 @@ class AapClient(
 
     private fun send(data: ByteArray) {
         if (writer.isShutdown) return
-        writer.execute {
-            try {
-                socket?.outputStream?.let {
-                    it.write(data)
-                    it.flush()
+        try {
+            writer.execute {
+                try {
+                    socket?.outputStream?.let {
+                        it.write(data)
+                        it.flush()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "send failed: $e")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "send failed: $e")
             }
+        } catch (_: RejectedExecutionException) {
+            Log.d(TAG, "send skipped because the AAP writer is stopping")
         }
     }
 

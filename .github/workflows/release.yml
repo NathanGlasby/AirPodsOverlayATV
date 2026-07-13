@@ -18,6 +18,8 @@ jobs:
       AIRPODS_KEY_PASSWORD: ${{ secrets.AIRPODS_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -32,7 +34,9 @@ jobs:
       - name: Verify signature and checksum
         run: |
           APK=$(find app/build/outputs/apk/release -name '*.apk' -type f -print -quit)
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
           sha256sum "$APK" | tee release-checksums.txt
           cp "$APK" "AirPodsOverlay-${GITHUB_REF_NAME:-manual}.apk"
       - uses: actions/upload-artifact@v4

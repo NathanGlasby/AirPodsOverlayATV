@@ -43,4 +43,16 @@ class AapPacketFramerTest {
         val packets = framer.feed(packet.copyOfRange(9, packet.size))
         assertArrayEquals(packet, packets.single())
     }
+
+    @Test
+    fun doesNotSplitPartialKnownPacketAtHeaderBytesInPayload() {
+        val packet = byteArrayOf(
+            0x04, 0x00, 0x04, 0x00, 0x04, 0x00, 0x01,
+            0x04, 0x00, 0x04, 0x00, 0x01,
+        )
+        val framer = AapPacketFramer()
+        assertEquals(emptyList<ByteArray>(), framer.feed(packet.copyOfRange(0, 11)))
+        val packets = framer.feed(packet.copyOfRange(11, packet.size))
+        assertArrayEquals(packet, packets.single())
+    }
 }

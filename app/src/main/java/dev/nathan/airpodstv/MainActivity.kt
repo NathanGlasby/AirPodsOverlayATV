@@ -118,7 +118,12 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         restorePolicyBtn = findViewById(R.id.restorePolicyBtn)
         restorePolicyBtn.setOnClickListener {
             prefs.blockAutoConnect = false
-            blockAutoSwitch.isChecked = false
+            refreshingUi = true
+            try {
+                blockAutoSwitch.isChecked = false
+            } finally {
+                refreshingUi = false
+            }
             if (BleScanService.start(this, BleScanService.ACTION_RESTORE_POLICY)) {
                 toast("Restoring the TV's normal auto-connect policy")
             } else {

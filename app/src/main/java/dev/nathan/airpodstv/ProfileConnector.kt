@@ -48,36 +48,61 @@ class ProfileConnector(private val context: Context) {
     private var a2dp: BluetoothA2dp? = null
     private var headset: BluetoothHeadset? = null
     private val main = Handler(Looper.getMainLooper())
-    private var opened = false
+    private var a2dpRequested = false
+    private var headsetRequested = false
 
     fun open() {
-        if (opened) return
-        opened = true
-        val ad = adapter ?: return
-        try {
-            ad.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                    if (profile == BluetoothProfile.A2DP) a2dp = proxy as BluetoothA2dp
-                }
-                override fun onServiceDisconnected(profile: Int) {
-                    if (profile == BluetoothProfile.A2DP) a2dp = null
-                }
-            }, BluetoothProfile.A2DP)
-            ad.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                    if (profile == BluetoothProfile.HEADSET) headset = proxy as BluetoothHeadset
-                }
-                override fun onServiceDisconnected(profile: Int) {
-                    if (profile == BluetoothProfile.HEADSET) headset = null
-                }
-            }, BluetoothProfile.HEADSET)
-        } catch (e: Exception) {
-            Log.w(TAG, "getProfileProxy failed", e)
+        val ad = adapter
+        if (ad == null) {
+            return
+        }
+        if (a2dp == null && !a2dpRequested) {
+            a2dpRequested = try {
+                ad.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+                    override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+                        if (profile == BluetoothProfile.A2DP) {
+                            a2dp = proxy as BluetoothA2dp
+                            a2dpRequested = false
+                        }
+                    }
+                    override fun onServiceDisconnected(profile: Int) {
+                        if (profile == BluetoothProfile.A2DP) {
+                            a2dp = null
+                            a2dpRequested = false
+                        }
+                    }
+                }, BluetoothProfile.A2DP)
+            } catch (e: Exception) {
+                Log.w(TAG, "A2DP getProfileProxy failed", e)
+                false
+            }
+        }
+        if (headset == null && !headsetRequested) {
+            headsetRequested = try {
+                ad.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+                    override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+                        if (profile == BluetoothProfile.HEADSET) {
+                            headset = proxy as BluetoothHeadset
+                            headsetRequested = false
+                        }
+                    }
+                    override fun onServiceDisconnected(profile: Int) {
+                        if (profile == BluetoothProfile.HEADSET) {
+                            headset = null
+                            headsetRequested = false
+                        }
+                    }
+                }, BluetoothProfile.HEADSET)
+            } catch (e: Exception) {
+                Log.w(TAG, "Headset getProfileProxy failed", e)
+                false
+            }
         }
     }
 
     fun close() {
-        opened = false
+        a2dpRequested = false
+        headsetRequested = false
         main.removeCallbacksAndMessages(null)
         try {
             a2dp?.let { adapter?.closeProfileProxy(BluetoothProfile.A2DP, it) }
@@ -117,8 +142,7 @@ class ProfileConnector(private val context: Context) {
     fun setAutoConnectAllowed(address: String?, allowed: Boolean): Boolean {
         val device = bondedDevice(address) ?: return false
         val value = if (allowed) CONNECTION_POLICY_ALLOWED else 0
-        val proxies = listOfNotNull<BluetoothProfile>(a2dp, headset)
-        if (proxies.isEmpty()) return false
+        val proxies = listOf<BluetoothProfile>(a2dp ?: return false, headset ?: return false)
         var allSucceeded = true
         for (proxy in proxies) {
             var done = false
@@ -161,10 +185,12 @@ class ProfileConnector(private val context: Context) {
         lateinit var attempt: Runnable
         attempt = Runnable {
             when {
-                !opened -> callback(false)
-                a2dp != null || headset != null -> callback(setAutoConnectAllowed(address, allowed))
+                a2dp != null && headset != null -> callback(setAutoConnectAllowed(address, allowed))
                 android.os.SystemClock.elapsedRealtime() - startedAt >= timeoutMs -> callback(false)
-                else -> main.postDelayed(attempt, 100L)
+                else -> {
+                    open()
+                    main.postDelayed(attempt, 100L)
+                }
             }
         }
         main.post(attempt)
@@ -204,11 +230,13 @@ class ProfileConnector(private val context: Context) {
         lateinit var awaitProfiles: Runnable
         awaitProfiles = Runnable {
             when {
-                !opened -> callback(ConnectResult.ProfilesUnavailable)
-                a2dp != null || headset != null -> connectReady(device, address, timeoutMs, callback)
+                a2dp != null && headset != null -> connectReady(device, address, timeoutMs, callback)
                 android.os.SystemClock.elapsedRealtime() - readyStartedAt >= profileReadyTimeoutMs ->
                     callback(ConnectResult.ProfilesUnavailable)
-                else -> main.postDelayed(awaitProfiles, 100L)
+                else -> {
+                    open()
+                    main.postDelayed(awaitProfiles, 100L)
+                }
             }
         }
         main.post(awaitProfiles)

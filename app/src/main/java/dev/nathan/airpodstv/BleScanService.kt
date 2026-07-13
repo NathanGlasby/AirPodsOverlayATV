@@ -118,8 +118,9 @@ class BleScanService : Service() {
             if (device?.address == null || device.address != prefs.deviceAddress) return
             when (intent.action) {
                 BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                    val userInitiated =
-                        SystemClock.elapsedRealtime() - connectRequestedAt < USER_CONNECT_WINDOW_MS
+                    val elapsedSinceRequest = SystemClock.elapsedRealtime() - connectRequestedAt
+                    val userInitiated = connectRequestedAt != 0L &&
+                        elapsedSinceRequest in 0 until USER_CONNECT_WINDOW_MS
                     if (prefs.blockAutoConnect && !userInitiated) {
                         Log.i(TAG, "OS auto-connected ${device.address}; blocking")
                         // Forbidding the policy also makes the OS drop the link.
@@ -411,9 +412,9 @@ class BleScanService : Service() {
             this,
             onConnect = {
                 connectRequestedAt = SystemClock.elapsedRealtime()
-                prefs.connectionPolicyBlocked = false
                 connector.connect(prefs.deviceAddress) { result ->
                     val ok = result is ProfileConnector.ConnectResult.Success
+                    if (ok) prefs.connectionPolicyBlocked = false
                     overlay?.setResult(ok, message = result.message)
                     prefs.serviceStatus = result.message
                     if (ok) popupSession.suppress()
@@ -433,9 +434,9 @@ class BleScanService : Service() {
         if (!testMode && prefs.autoConnect) {
             ov.setConnecting()
             connectRequestedAt = SystemClock.elapsedRealtime()
-            prefs.connectionPolicyBlocked = false
             connector.connect(prefs.deviceAddress) { result ->
                 val ok = result is ProfileConnector.ConnectResult.Success
+                if (ok) prefs.connectionPolicyBlocked = false
                 overlay?.setResult(ok, message = result.message)
                 prefs.serviceStatus = result.message
                 if (ok) popupSession.suppress()

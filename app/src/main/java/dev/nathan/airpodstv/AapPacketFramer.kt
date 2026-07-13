@@ -26,6 +26,7 @@ internal class AapPacketFramer(private val maxBufferSize: Int = 16 * 1024) {
             val knownLength = knownPacketLength(buffered)
             val packetLength = when {
                 knownLength != null && buffered.size >= knownLength -> knownLength
+                knownCommand(buffered) -> break
                 nextHeaderAt > 0 -> nextHeaderAt
                 else -> break
             }
@@ -48,6 +49,12 @@ internal class AapPacketFramer(private val maxBufferSize: Int = 16 * 1024) {
             0x31 -> keyPacketLength(data)
             else -> null
         }
+    }
+
+    private fun knownCommand(data: ByteArray): Boolean {
+        if (data.size < 6) return false
+        val command = (data[4].toInt() and 0xFF) or ((data[5].toInt() and 0xFF) shl 8)
+        return command == 0x04 || command == 0x06 || command == 0x09 || command == 0x31
     }
 
     private fun keyPacketLength(data: ByteArray): Int? {
