@@ -1,0 +1,16 @@
+{
+  "sources": [
+    {
+      "name": "Community 2026",
+      "description": "Free Community 2026 aerial pack by Joshua Michaels, Hal Bergman & friends (4K SDR). Repackaged as a feed; videos stream from the AerialCommunity GitHub releases.",
+      "scenes": [
+        "landscape"
+      ],
+      "manifestUrl": "https://raw.githubusercontent.com/NathanGlasby/AirPodsOverlayATV/main/feeds/community2026/entries.json",
+      "license": "https://jetsoncreative.com/aeriallicense",
+      "more": "https://magicwindow.app/aerial",
+      "local": false,
+      "cacheable": true
+    }
+  ]
+}

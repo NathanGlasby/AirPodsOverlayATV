@@ -1,0 +1,266 @@
+{
+  "assets": [
+    {
+      "id": "1A265EB2-EF7A-5D80-AFCD-4DB6E056FAA0",
+      "accessibilityLabel": "Downtown Los Angeles, California",
+      "title": "Downtown Los Angeles, California",
+      "scene": "city",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Downtown Los Angeles, California"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_ca_los-angeles_dtla_20251216_003.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_ca_los-angeles_dtla_20251216_003.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_ca_los-angeles_dtla_20251216_003.4k-sdr.mov"
+    },
+    {
+      "id": "E2E3A5AB-23FF-5371-BB74-3327FD277429",
+      "accessibilityLabel": "Tiburon, California",
+      "title": "Tiburon, California",
+      "scene": "sea",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Tiburon, California"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_ca_tiburon_20250502_030.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_ca_tiburon_20250502_030.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_ca_tiburon_20250502_030.4k-sdr.mov"
+    },
+    {
+      "id": "ECB5B11B-AFCD-5A5D-8D91-3975BA016E34",
+      "accessibilityLabel": "Poussay, France",
+      "title": "Poussay, France",
+      "scene": "countryside",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Poussay, France"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_fr_poussay_03_03.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_fr_poussay_03_03.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_fr_poussay_03_03.4k-sdr.mov"
+    },
+    {
+      "id": "CF726D52-AADB-5AAB-8BC7-30DA9460F8CB",
+      "accessibilityLabel": "Jodhpur, India",
+      "title": "Jodhpur, India",
+      "scene": "city",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Jodhpur, India"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_in_jodhpur_gulabsagar_jaswantthada_20241128_010_013.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_in_jodhpur_gulabsagar_jaswantthada_20241128_010_013.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_in_jodhpur_gulabsagar_jaswantthada_20241128_010_013.4k-sdr.mov"
+    },
+    {
+      "id": "8C053C2A-3904-53F0-B455-1ED9ACB32F31",
+      "accessibilityLabel": "Westfjords, Iceland",
+      "title": "Westfjords, Iceland",
+      "scene": "landscape",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Westfjords, Iceland"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_is_westfjords_20240616_004.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_is_westfjords_20240616_004.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_is_westfjords_20240616_004.4k-sdr.mov"
+    },
+    {
+      "id": "5349F3DC-A92C-57A2-AA3E-F87491763BE5",
+      "accessibilityLabel": "Lake Martin, Louisiana",
+      "title": "Lake Martin, Louisiana",
+      "scene": "landscape",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Lake Martin, Louisiana"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_la_lake-martin_20251019_029.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_la_lake-martin_20251019_029.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_la_lake-martin_20251019_029.4k-sdr.mov"
+    },
+    {
+      "id": "344DF754-29BC-5AD3-A89C-73C34C4B1581",
+      "accessibilityLabel": "Shiprock, New Mexico",
+      "title": "Shiprock, New Mexico",
+      "scene": "landscape",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Shiprock, New Mexico"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nm_shiprock_20251025_010.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nm_shiprock_20251025_010.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nm_shiprock_20251025_010.4k-sdr.mov"
+    },
+    {
+      "id": "164B8935-659D-5233-B83B-E81405934988",
+      "accessibilityLabel": "Bed-Stuy, Brooklyn, New York",
+      "title": "Bed-Stuy, Brooklyn, New York",
+      "scene": "city",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Bed-Stuy, Brooklyn, New York"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nyc_brooklyn_bed-stuy_20250919_086.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nyc_brooklyn_bed-stuy_20250919_086.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nyc_brooklyn_bed-stuy_20250919_086.4k-sdr.mov"
+    },
+    {
+      "id": "C9BA4B3B-776E-5C6F-A45B-A07898D879C8",
+      "accessibilityLabel": "Manhattan, New York",
+      "title": "Manhattan, New York",
+      "scene": "city",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Manhattan, New York"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nyc_manhattan_20250918_067.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nyc_manhattan_20250918_067.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_nyc_manhattan_20250918_067.4k-sdr.mov"
+    },
+    {
+      "id": "9EB4A63C-3ED6-5CF3-A8A2-985A94F0955A",
+      "accessibilityLabel": "Gardiner, Oregon",
+      "title": "Gardiner, Oregon",
+      "scene": "countryside",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Gardiner, Oregon"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_or_gardiner_20250430_011.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_or_gardiner_20250430_011.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_or_gardiner_20250430_011.4k-sdr.mov"
+    },
+    {
+      "id": "36E29678-10FD-55AA-9C17-DC6479C3FC2C",
+      "accessibilityLabel": "Oregon Dunes, Oregon",
+      "title": "Oregon Dunes, Oregon",
+      "scene": "beach",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Oregon Dunes, Oregon"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_or_oregon-dunes_20250429_004.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_or_oregon-dunes_20250429_004.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_or_oregon-dunes_20250429_004.4k-sdr.mov"
+    },
+    {
+      "id": "8BDA2758-6494-5CBC-889C-C27BF3795B2B",
+      "accessibilityLabel": "Johnson Space Center, Houston, Texas",
+      "title": "Johnson Space Center, Houston, Texas",
+      "scene": "city",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Johnson Space Center, Houston, Texas"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_tx_houston_johnson-space-center_20251020_003.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_tx_houston_johnson-space-center_20251020_003.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_tx_houston_johnson-space-center_20251020_003.4k-sdr.mov"
+    },
+    {
+      "id": "F7EF59C0-B18F-5531-804E-FFA96BA6A5A2",
+      "accessibilityLabel": "Staithes, England",
+      "title": "Staithes, England",
+      "scene": "sea",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Staithes, England"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_staithes_20240628_003.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_staithes_20240628_003.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_staithes_20240628_003.4k-sdr.mov"
+    },
+    {
+      "id": "19279412-BEA8-58B7-90A2-001CB9397491",
+      "accessibilityLabel": "Whitby, England",
+      "title": "Whitby, England",
+      "scene": "sea",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Whitby, England"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_whitby_20240628_005.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_whitby_20240628_005.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_whitby_20240628_005.4k-sdr.mov"
+    },
+    {
+      "id": "40FCAC1A-8C2A-573A-8EDC-DEA653466345",
+      "accessibilityLabel": "Yorkshire, England",
+      "title": "Yorkshire, England",
+      "scene": "countryside",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Yorkshire, England"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_yorkshire_20240623_021.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_yorkshire_20240623_021.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_uk_yorkshire_20240623_021.4k-sdr.mov"
+    },
+    {
+      "id": "C76931FF-DCC0-567D-9010-340B1A74FB21",
+      "accessibilityLabel": "Elwha River, Washington",
+      "title": "Elwha River, Washington",
+      "scene": "landscape",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Elwha River, Washington"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_wa_elwaha-river_20250427_001.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_wa_elwaha-river_20250427_001.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_i3_wa_elwaha-river_20250427_001.4k-sdr.mov"
+    },
+    {
+      "id": "535B8060-25D6-5EDC-94F7-1EE4ADE4F39B",
+      "accessibilityLabel": "Davos, Switzerland",
+      "title": "Davos, Switzerland",
+      "scene": "landscape",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Davos, Switzerland"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_davos_20250712_009.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_davos_20250712_009.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_davos_20250712_009.4k-sdr.mov"
+    },
+    {
+      "id": "9ABFABA3-6E96-57E5-9FC4-387C29885610",
+      "accessibilityLabel": "Quarten, Switzerland",
+      "title": "Quarten, Switzerland",
+      "scene": "landscape",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Quarten, Switzerland"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_quarten_20250712_003.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_quarten_20250712_003.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_quarten_20250712_003.4k-sdr.mov"
+    },
+    {
+      "id": "81C9BCA3-3699-5CCF-9D60-640920E26341",
+      "accessibilityLabel": "Zurich, Switzerland",
+      "title": "Zurich, Switzerland",
+      "scene": "city",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Zurich, Switzerland"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_zurich_20250712_013-v2.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_zurich_20250712_013-v2.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_ch_zurich_20250712_013-v2.4k-sdr.mov"
+    },
+    {
+      "id": "05A11A0F-0B96-5FF3-B2FE-FCB5391EFB28",
+      "accessibilityLabel": "Bolzano, Italy",
+      "title": "Bolzano, Italy",
+      "scene": "city",
+      "timeOfDay": "day",
+      "pointsOfInterest": {
+        "0": "Bolzano, Italy"
+      },
+      "url-4K-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_it_bolzano_20250717_013.4k-sdr.mov",
+      "url-1080-SDR": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_it_bolzano_20250717_013.4k-sdr.mov",
+      "url-1080-H264": "https://github.com/AerialScreensaver/AerialCommunity/releases/download/community2026-4k-sdr/video_m3_it_bolzano_20250717_013.4k-sdr.mov"
+    }
+  ],
+  "initialAssetCount": 20,
+  "version": 1
+}
