@@ -263,7 +263,7 @@ class AapClient(
             val startedAt = SystemClock.elapsedRealtime()
             val timeout = armTimeout(
                 strategy.label,
-                AapTransportPlan.timeoutMs(Build.VERSION.SDK_INT, strategy),
+                AapTransportPlan.timeoutMs(),
                 attempt,
             )
             try {

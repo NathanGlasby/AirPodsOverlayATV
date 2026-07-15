@@ -31,18 +31,7 @@ class AapTransportPlanTest {
 
     @Test
     fun everyAttemptHasABoundedRadioBlackout() {
-        assertEquals(
-            8_000L,
-            AapTransportPlan.timeoutMs(30, AapTransportPlan.Security.SECURE),
-        )
-        assertEquals(
-            8_000L,
-            AapTransportPlan.timeoutMs(30, AapTransportPlan.Security.INSECURE),
-        )
-        assertEquals(
-            8_000L,
-            AapTransportPlan.timeoutMs(34, AapTransportPlan.Security.INSECURE),
-        )
+        assertEquals(8_000L, AapTransportPlan.timeoutMs())
     }
 
     @Test

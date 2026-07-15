@@ -22,7 +22,7 @@ internal object AapTransportPlan {
     }
 
     /** Keep the one-time scan pause bounded so BLE-only reactions recover promptly. */
-    fun timeoutMs(sdkInt: Int, security: Security): Long = 8_000L
+    fun timeoutMs(): Long = 8_000L
 
     /** True when reflection cannot expose the Classic L2CAP socket on this Android build. */
     fun isHiddenApiAccessFailure(error: Throwable): Boolean {
