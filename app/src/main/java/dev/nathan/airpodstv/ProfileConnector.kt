@@ -11,6 +11,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 
 /**
  * Connects an already-paired Bluetooth classic audio device (A2DP + HFP) using the
@@ -37,9 +38,44 @@ class ProfileConnector(private val context: Context) {
             }
     }
 
+    sealed class DisconnectResult {
+        data object Success : DisconnectResult()
+        data object DeviceNotPaired : DisconnectResult()
+        data object ProfilesUnavailable : DisconnectResult()
+        data object RequestRejected : DisconnectResult()
+        data object TimedOut : DisconnectResult()
+
+        val message: String
+            get() = when (this) {
+                Success -> "Disconnected"
+                DeviceNotPaired -> "AirPods are no longer paired"
+                ProfilesUnavailable -> "TV Bluetooth audio service is not ready"
+                RequestRejected -> "TV rejected the Bluetooth disconnect request"
+                TimedOut -> "Disconnect timed out"
+            }
+    }
+
     companion object {
         private const val TAG = "ProfileConnector"
         private const val CONNECTION_POLICY_ALLOWED = 100
+
+        @Volatile
+        private var hiddenApiReady = false
+
+        @Synchronized
+        private fun ensureHiddenApiAccess(): Boolean {
+            if (hiddenApiReady) return true
+            return try {
+                hiddenApiReady = HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/")
+                hiddenApiReady
+            } catch (e: LinkageError) {
+                Log.w(TAG, "Could not enable hidden Bluetooth APIs", e)
+                false
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not enable hidden Bluetooth APIs", e)
+                false
+            }
+        }
     }
 
     private val adapter: BluetoothAdapter? =
@@ -140,6 +176,7 @@ class ProfileConnector(private val context: Context) {
      * the OS to disconnect the device.
      */
     fun setAutoConnectAllowed(address: String?, allowed: Boolean): Boolean {
+        if (!ensureHiddenApiAccess()) return false
         val device = bondedDevice(address) ?: return false
         val value = if (allowed) CONNECTION_POLICY_ALLOWED else 0
         val proxies = listOf<BluetoothProfile>(a2dp ?: return false, headset ?: return false)
@@ -197,18 +234,83 @@ class ProfileConnector(private val context: Context) {
     }
 
     /** Disconnects both audio profiles via the hidden disconnect(BluetoothDevice). */
-    fun disconnect(address: String?) {
-        val device = bondedDevice(address) ?: return
+    fun disconnect(address: String?): Boolean {
+        if (!ensureHiddenApiAccess()) return false
+        val device = bondedDevice(address) ?: return false
+        var requested = false
         for (proxy in listOfNotNull<BluetoothProfile>(a2dp, headset)) {
             try {
                 val m = proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
                 m.isAccessible = true
                 val ok = m.invoke(proxy, device)
                 Log.i(TAG, "${proxy.javaClass.simpleName}.disconnect() -> $ok")
+                requested = ok == true || requested
             } catch (e: Exception) {
                 Log.w(TAG, "disconnect reflection failed: $e")
             }
         }
+        return requested
+    }
+
+    fun disconnectWhenReady(
+        address: String?,
+        timeoutMs: Long = 8_000L,
+        profileReadyTimeoutMs: Long = 3_000L,
+        callback: (DisconnectResult) -> Unit,
+    ) {
+        if (bondedDevice(address) == null) {
+            main.post { callback(DisconnectResult.DeviceNotPaired) }
+            return
+        }
+        val readyStartedAt = android.os.SystemClock.elapsedRealtime()
+        lateinit var awaitProfiles: Runnable
+        awaitProfiles = Runnable {
+            when {
+                // A2DP is the TV audio path and must be observable before we declare the
+                // device disconnected. HEADSET is optional on A2DP-only Android TV builds.
+                a2dp != null -> disconnectReady(address, timeoutMs, callback)
+                android.os.SystemClock.elapsedRealtime() - readyStartedAt >= profileReadyTimeoutMs ->
+                    callback(DisconnectResult.ProfilesUnavailable)
+                else -> {
+                    open()
+                    main.postDelayed(awaitProfiles, 100L)
+                }
+            }
+        }
+        main.post(awaitProfiles)
+    }
+
+    private fun disconnectReady(
+        address: String?,
+        timeoutMs: Long,
+        callback: (DisconnectResult) -> Unit,
+    ) {
+        if (!isConnected(address)) {
+            callback(DisconnectResult.Success)
+            return
+        }
+        if (!disconnect(address)) {
+            callback(DisconnectResult.RequestRejected)
+            return
+        }
+
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        var retried = false
+        lateinit var poll: Runnable
+        poll = Runnable {
+            val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
+            when {
+                !isConnected(address) -> callback(DisconnectResult.Success)
+                elapsed >= timeoutMs -> callback(DisconnectResult.TimedOut)
+                !retried && elapsed >= timeoutMs / 2 -> {
+                    retried = true
+                    disconnect(address)
+                    main.postDelayed(poll, 250L)
+                }
+                else -> main.postDelayed(poll, 250L)
+            }
+        }
+        main.postDelayed(poll, 250L)
     }
 
     /**
@@ -272,6 +374,7 @@ class ProfileConnector(private val context: Context) {
 
     private fun connectProfile(proxy: BluetoothProfile?, device: BluetoothDevice): Boolean {
         if (proxy == null) return false
+        if (!ensureHiddenApiAccess()) return false
         // Try the classic hidden connect(BluetoothDevice) first.
         try {
             val m = proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)

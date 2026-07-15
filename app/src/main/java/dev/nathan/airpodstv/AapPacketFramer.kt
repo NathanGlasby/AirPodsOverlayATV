@@ -1,9 +1,6 @@
 package dev.nathan.airpodstv
 
-/**
- * Reassembles AAP packets from the byte-stream exposed by [android.bluetooth.BluetoothSocket].
- * Bluetooth reads are not packet boundaries: one read may contain half a packet or several.
- */
+/** Reassembles the AAP packet schemas consumed by this app across Bluetooth reads. */
 internal class AapPacketFramer(private val maxBufferSize: Int = 16 * 1024) {
     private var buffered = ByteArray(0)
 
@@ -20,13 +17,13 @@ internal class AapPacketFramer(private val maxBufferSize: Int = 16 * 1024) {
                 break
             }
             if (headerAt > 0) buffered = buffered.copyOfRange(headerAt, buffered.size)
-            if (buffered.size < HEADER.size + 2) break
+            if (buffered.size < HEADER_SIZE) break
 
-            val nextHeaderAt = findHeader(buffered, HEADER.size)
-            val knownLength = knownPacketLength(buffered)
+            val nextHeaderAt = findHeader(buffered, HEADER_SIZE)
+            val knownLength = knownFrameLength(buffered)
             val packetLength = when {
                 knownLength != null && buffered.size >= knownLength -> knownLength
-                knownCommand(buffered) -> break
+                hasKnownSchema(buffered) -> break
                 nextHeaderAt > 0 -> nextHeaderAt
                 else -> break
             }
@@ -35,26 +32,42 @@ internal class AapPacketFramer(private val maxBufferSize: Int = 16 * 1024) {
         }
 
         if (buffered.size > maxBufferSize) {
-            buffered = buffered.takeLast(HEADER.size - 1).toByteArray()
+            buffered = buffered.takeLast(HEADER_SIZE - 1).toByteArray()
         }
         return packets
     }
 
-    private fun knownPacketLength(data: ByteArray): Int? {
+    private fun knownFrameLength(data: ByteArray): Int? {
+        if (data.size < HEADER_SIZE) return null
+        return when (readLe16(data, 0)) {
+            TYPE_CONNECT -> 16
+            TYPE_CONNECT_RESPONSE -> 18
+            TYPE_DISCONNECT -> 6
+            TYPE_DISCONNECT_RESPONSE -> 4
+            TYPE_MESSAGE -> knownMessageLength(data)
+            else -> null
+        }
+    }
+
+    private fun knownMessageLength(data: ByteArray): Int? {
         if (data.size < 6) return null
-        val command = (data[4].toInt() and 0xFF) or ((data[5].toInt() and 0xFF) shl 8)
+        val command = readLe16(data, 4)
         return when (command) {
             0x04 -> if (data.size >= 7) 7 + (data[6].toInt() and 0xFF) * 5 else null
-            0x06, 0x09 -> 8
+            0x06 -> 8
+            0x09 -> 11
             0x31 -> keyPacketLength(data)
             else -> null
         }
     }
 
-    private fun knownCommand(data: ByteArray): Boolean {
-        if (data.size < 6) return false
-        val command = (data[4].toInt() and 0xFF) or ((data[5].toInt() and 0xFF) shl 8)
-        return command == 0x04 || command == 0x06 || command == 0x09 || command == 0x31
+    private fun hasKnownSchema(data: ByteArray): Boolean {
+        if (data.size < HEADER_SIZE) return false
+        return when (readLe16(data, 0)) {
+            TYPE_CONNECT, TYPE_CONNECT_RESPONSE, TYPE_DISCONNECT, TYPE_DISCONNECT_RESPONSE -> true
+            TYPE_MESSAGE -> data.size >= 6 && readLe16(data, 4) in KNOWN_MESSAGE_COMMANDS
+            else -> false
+        }
     }
 
     private fun keyPacketLength(data: ByteArray): Int? {
@@ -71,21 +84,41 @@ internal class AapPacketFramer(private val maxBufferSize: Int = 16 * 1024) {
     }
 
     private fun findHeader(data: ByteArray, from: Int = 0): Int {
-        for (i in from..data.size - HEADER.size) {
-            if (HEADER.indices.all { data[i + it] == HEADER[it] }) return i
+        for (i in from..data.size - HEADER_SIZE) {
+            if (HEADERS.any { header -> header.indices.all { data[i + it] == header[it] } }) {
+                return i
+            }
         }
         return -1
     }
 
     private fun partialHeaderSuffixLength(data: ByteArray): Int {
-        val max = minOf(data.size, HEADER.size - 1)
+        val max = minOf(data.size, HEADER_SIZE - 1)
         for (length in max downTo 1) {
-            if ((0 until length).all { data[data.size - length + it] == HEADER[it] }) return length
+            if (HEADERS.any { header ->
+                    (0 until length).all { data[data.size - length + it] == header[it] }
+                }
+            ) {
+                return length
+            }
         }
         return 0
     }
 
+    private fun readLe16(data: ByteArray, offset: Int): Int =
+        (data[offset].toInt() and 0xFF) or
+            ((data[offset + 1].toInt() and 0xFF) shl 8)
+
     private companion object {
-        val HEADER = byteArrayOf(0x04, 0x00, 0x04, 0x00)
+        const val HEADER_SIZE = 4
+        const val TYPE_CONNECT = 0x0000
+        const val TYPE_CONNECT_RESPONSE = 0x0001
+        const val TYPE_DISCONNECT = 0x0002
+        const val TYPE_DISCONNECT_RESPONSE = 0x0003
+        const val TYPE_MESSAGE = 0x0004
+        val KNOWN_MESSAGE_COMMANDS = setOf(0x04, 0x06, 0x09, 0x31)
+        val HEADERS = (TYPE_CONNECT..TYPE_MESSAGE).map { type ->
+            byteArrayOf(type.toByte(), 0x00, 0x04, 0x00)
+        }
     }
 }

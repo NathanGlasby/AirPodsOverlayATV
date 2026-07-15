@@ -25,6 +25,7 @@ object BeaconParser {
         val model: Int,
         val lidState: LidState,
         val podsInCase: Boolean,
+        val bothPodsInCase: Boolean = false,
         val statusByte: Int = 0,
         val lidByte: Int = 0,
         val leftBattery: Int?,
@@ -59,6 +60,7 @@ object BeaconParser {
     internal data class CaseState(
         val thisPodInCase: Boolean,
         val podsInCase: Boolean,
+        val bothPodsInCase: Boolean,
         val lidState: LidState,
     )
 
@@ -79,13 +81,30 @@ object BeaconParser {
             (lidByte shr 3) and 1 == 0 -> LidState.OPEN
             else -> LidState.CLOSED
         }
-        return CaseState(thisPodInCase, broadcastingPodInCase, lidState)
+        return CaseState(thisPodInCase, broadcastingPodInCase, bothInCase, lidState)
     }
 
     fun parse(result: ScanResult): Beacon? {
         val data = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID) ?: return null
-        if (data.size < 11) return null
+        return parseManufacturerData(
+            data = data,
+            address = result.device?.address ?: "?",
+            rssi = result.rssi,
+        )
+    }
+
+    internal fun parseManufacturerData(
+        data: ByteArray,
+        address: String,
+        rssi: Int,
+        timestamp: Long = System.currentTimeMillis(),
+    ): Beacon? {
+        // Type 0x07 is also used by shorter identity-address frames whose bytes do not
+        // follow this layout. Accept only the complete proximity-pairing payload.
+        if (data.size < 27) return null
         if (data[0].toInt() and 0xFF != 0x07) return null
+        if (data[1].toInt() and 0xFF != 0x19) return null
+        if (data[2].toInt() and 0xFF != 0x01) return null
 
         val model = ((data[3].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)
         val status = data[5].toInt() and 0xFF
@@ -124,11 +143,12 @@ object BeaconParser {
         val rightInEar = (status and (if (earFlip) 0x02 else 0x08)) != 0
 
         return Beacon(
-            address = result.device?.address ?: "?",
-            rssi = result.rssi,
+            address = address,
+            rssi = rssi,
             model = model,
             lidState = caseState.lidState,
             podsInCase = podsInCase,
+            bothPodsInCase = caseState.bothPodsInCase,
             statusByte = status,
             lidByte = lidByte,
             leftBattery = left,
@@ -139,6 +159,7 @@ object BeaconParser {
             caseCharging = caseCharging,
             leftInEar = leftInEar,
             rightInEar = rightInEar,
+            timestamp = timestamp,
         )
     }
 }

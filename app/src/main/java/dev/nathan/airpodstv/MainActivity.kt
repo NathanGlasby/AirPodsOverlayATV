@@ -87,14 +87,25 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         modelFilterSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.modelFilter = c }
         identitySwitch.setOnCheckedChangeListener { _, c ->
             if (refreshingUi) return@setOnCheckedChangeListener
-            prefs.identityFilter = c
             if (c && !prefs.irkVerified) {
-                toast("Identity protection will use distance until the captured key is verified")
+                refreshingUi = true
+                identitySwitch.isChecked = false
+                refreshingUi = false
+                toast("Connect once and wait for the identity key to verify first")
+                return@setOnCheckedChangeListener
             }
+            prefs.identityFilter = c
         }
         autoPauseSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.autoPause = c }
         autoDisconnectSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.autoDisconnectOnLidClose = c }
-        aapSwitch.setOnCheckedChangeListener { _, c -> if (!refreshingUi) prefs.aapEnabled = c }
+        aapSwitch.setOnCheckedChangeListener { _, c ->
+            if (refreshingUi) return@setOnCheckedChangeListener
+            prefs.aapEnabled = c
+            if (BleScanService.isRunning) {
+                BleScanService.start(this, BleScanService.ACTION_AAP_CHANGED)
+            }
+            onAapChanged()
+        }
 
         ancButtons = mapOf(
             AapClient.ANC_OFF to findViewById<Button>(R.id.ancOffBtn),
@@ -199,15 +210,34 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
 
     override fun onAapChanged() {
         val irkCaptured = prefs.irkHex != null
-        val session = if (AapBus.sessionActive) "session active" else "no session (connect to start)"
+        val sessionBase = if (!prefs.aapEnabled) {
+            "enhanced session off"
+        } else if (!BleScanService.isRunning) {
+            "scanner off; enhanced session unavailable"
+        } else {
+            when (AapBus.sessionState) {
+                AapBus.SessionState.DISABLED -> "enhanced session off"
+                AapBus.SessionState.WAITING_FOR_CONNECTION -> "waiting for AirPods connection"
+                AapBus.SessionState.CONNECTING -> "opening enhanced session"
+                AapBus.SessionState.ACTIVE -> "session active"
+                AapBus.SessionState.RETRYING -> "session retry scheduled"
+                AapBus.SessionState.UNSUPPORTED ->
+                    "enhanced session unavailable on this Android 11 build"
+            }
+        }
+        val session = sessionBase + (AapBus.sessionDetail?.let { " ($it)" } ?: "")
         val identity = when {
+            !irkCaptured && AapBus.sessionState == AapBus.SessionState.UNSUPPORTED ->
+                "identity key unavailable without enhanced session"
             !irkCaptured -> "identity key not captured yet; connect once"
             prefs.irkVerified -> "identity key verified ✓"
-            else -> "identity key captured; awaiting live verification (distance fallback active)"
+            else -> "identity key captured; awaiting live verification"
         }
         val batteryPart = AapBus.batteryLine?.let { "\nBattery: $it" } ?: ""
         aapStatus.text = "Status: $session · $identity$batteryPart"
-        identitySwitch.isEnabled = irkCaptured
+        // A pending strict filter stays fail-closed, but the user must still be able
+        // to turn it off while the newly scoped key awaits live verification.
+        identitySwitch.isEnabled = prefs.irkVerified || prefs.identityFilter
 
         ancButtons.forEach { (wireMode, button) ->
             button.isEnabled = AapBus.sessionActive
@@ -367,7 +397,7 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         blockAutoSwitch.isChecked = prefs.blockAutoConnect
         modelFilterSwitch.isChecked = prefs.modelFilter
         identitySwitch.isChecked = prefs.identityFilter
-        identitySwitch.isEnabled = prefs.irkHex != null
+        identitySwitch.isEnabled = prefs.irkVerified || prefs.identityFilter
         autoPauseSwitch.isChecked = prefs.autoPause
         autoDisconnectSwitch.isChecked = prefs.autoDisconnectOnLidClose
         aapSwitch.isChecked = prefs.aapEnabled
@@ -468,7 +498,7 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
                     prefs.deviceName = dev.name ?: "AirPods"
                     if (deviceChanged) {
                         // An IRK belongs to one physical device; never carry it to a new selection.
-                        prefs.irkHex = null
+                        prefs.clearIdentity()
                         if (BleScanService.isRunning) {
                             BleScanService.deviceChanged(this@MainActivity, oldAddress)
                         }
