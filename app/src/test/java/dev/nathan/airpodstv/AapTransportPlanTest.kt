@@ -1,6 +1,8 @@
 package dev.nathan.airpodstv
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AapTransportPlanTest {
@@ -51,5 +53,37 @@ class AapTransportPlanTest {
                 listOf("secure L2CAP timed out", "insecure L2CAP rejected")
             ),
         )
+    }
+
+    @Test
+    fun hiddenApiFailureDistinguishesAccessDenialFromTargetPermissionFailure() {
+        assertTrue(AapTransportPlan.isHiddenApiAccessFailure(SecurityException("hidden API denied")))
+        assertFalse(
+            AapTransportPlan.isHiddenApiAccessFailure(
+                java.lang.reflect.InvocationTargetException(
+                    SecurityException("Bluetooth permission denied")
+                )
+            )
+        )
+    }
+
+    @Test
+    fun hiddenApiFailureRecognizesMissingMethodAndLinkageErrors() {
+        assertTrue(AapTransportPlan.isHiddenApiAccessFailure(NoSuchMethodException("missing")))
+        assertTrue(
+            AapTransportPlan.isHiddenApiAccessFailure(
+                ExceptionInInitializerError("hidden API library failed")
+            )
+        )
+        assertTrue(
+            AapTransportPlan.isHiddenApiAccessFailure(
+                NoClassDefFoundError("hidden API library unavailable")
+            )
+        )
+    }
+
+    @Test
+    fun hiddenApiFailureDoesNotClassifyOrdinaryIoFailure() {
+        assertFalse(AapTransportPlan.isHiddenApiAccessFailure(java.io.IOException("temporary")))
     }
 }

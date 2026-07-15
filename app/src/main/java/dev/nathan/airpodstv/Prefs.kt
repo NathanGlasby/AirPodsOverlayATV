@@ -134,5 +134,5 @@ class Prefs(context: Context) {
     /** When the IRK is known, only react to beacons cryptographically proven to be ours. */
     var identityFilter: Boolean
         get() = sp.getBoolean("identity_filter", false)
-        set(v) = sp.edit().putBoolean("identity_filter", v && irkVerified).apply()
+        set(v) = sp.edit().putBoolean("identity_filter", v).apply()
 }

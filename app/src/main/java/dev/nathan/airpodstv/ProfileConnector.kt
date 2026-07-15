@@ -68,6 +68,9 @@ class ProfileConnector(private val context: Context) {
             return try {
                 hiddenApiReady = HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/")
                 hiddenApiReady
+            } catch (e: LinkageError) {
+                Log.w(TAG, "Could not enable hidden Bluetooth APIs", e)
+                false
             } catch (e: Exception) {
                 Log.w(TAG, "Could not enable hidden Bluetooth APIs", e)
                 false

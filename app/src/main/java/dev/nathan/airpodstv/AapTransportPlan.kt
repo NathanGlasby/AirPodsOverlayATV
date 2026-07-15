@@ -24,6 +24,24 @@ internal object AapTransportPlan {
     /** Keep the one-time scan pause bounded so BLE-only reactions recover promptly. */
     fun timeoutMs(sdkInt: Int, security: Security): Long = 8_000L
 
+    /** True when reflection cannot expose the Classic L2CAP socket on this Android build. */
+    fun isHiddenApiAccessFailure(error: Throwable): Boolean {
+        var current: Throwable? = error
+        val visited = mutableSetOf<Throwable>()
+        var root = true
+        while (current != null && visited.add(current)) {
+            if (current is NoSuchMethodException ||
+                current is LinkageError ||
+                (root && current is SecurityException)
+            ) {
+                return true
+            }
+            root = false
+            current = current.cause
+        }
+        return false
+    }
+
     fun failureDetail(failures: List<String>): String = when {
         failures.isEmpty() -> "Classic L2CAP connection failed"
         failures.size == 1 -> failures.first()

@@ -1,6 +1,6 @@
 package dev.nathan.airpodstv
 
-/** A single packet delivered by the BR/EDR L2CAP SEQPACKET socket. */
+/** A single decoded AAP packet. */
 internal sealed class AapPacket(val raw: ByteArray) {
     class ConnectResponse(
         raw: ByteArray,

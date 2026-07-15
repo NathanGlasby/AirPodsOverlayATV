@@ -190,14 +190,15 @@ class AapClient(
     private fun createSocket(security: AapTransportPlan.Security): BluetoothSocket {
         // These hidden methods create Classic BR/EDR L2CAP sockets. The similarly named
         // public L2CAP channel APIs on Android 11 are LE CoC and cannot carry AAP.
-        check(HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/")) {
-            "Android refused hidden Bluetooth API access"
+        if (!HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/")) {
+            throw SecurityException("Android refused hidden Bluetooth API access")
         }
         val method = BluetoothDevice::class.java.getDeclaredMethod(
             security.methodName, Int::class.javaPrimitiveType
         )
         method.isAccessible = true
-        return method.invoke(device, PSM) as BluetoothSocket
+        return method.invoke(device, PSM) as? BluetoothSocket
+            ?: throw NoSuchMethodException("${security.methodName} returned no Bluetooth socket")
     }
 
     private fun connectL2cap(): BluetoothSocket {
@@ -213,7 +214,16 @@ class AapClient(
         val failures = mutableListOf<String>()
         var lastFailure: Throwable? = null
         var timedOutAttempts = 0
+        var unavailableAttempts = 0
         val strategies = AapTransportPlan.forSdk(Build.VERSION.SDK_INT)
+
+        fun recordUnavailable(strategy: AapTransportPlan.Security, error: Throwable) {
+            lastFailure = error
+            if (AapTransportPlan.isHiddenApiAccessFailure(error)) unavailableAttempts++
+            val detail = "${strategy.label} unavailable (${shortFailure(error)})"
+            failures += detail
+            Log.w(TAG, detail, error)
+        }
 
         strategies.forEachIndexed { index, strategy ->
             if (!running || stopRequested) throw IOException("AAP session stopped")
@@ -227,10 +237,10 @@ class AapClient(
             val attempt = try {
                 createSocket(strategy)
             } catch (e: Exception) {
-                lastFailure = e
-                val detail = "${strategy.label} unavailable (${shortFailure(e)})"
-                failures += detail
-                Log.w(TAG, detail, e)
+                recordUnavailable(strategy, e)
+                return@forEachIndexed
+            } catch (e: LinkageError) {
+                recordUnavailable(strategy, e)
                 return@forEachIndexed
             }
 
@@ -298,10 +308,10 @@ class AapClient(
         throw TransportException(
             message = AapTransportPlan.failureDetail(failures),
             cause = lastFailure,
-            // On Android 11, only two independently timed-out socket modes are strong
-            // enough evidence to stop retrying this connection as platform-blocked.
-            platformBlocked = Build.VERSION.SDK_INT == 30 &&
-                timedOutAttempts == strategies.size,
+            // Missing hidden APIs are terminal on every Android version. Other failures
+            // remain terminal only after both socket modes time out on Android 11.
+            platformBlocked = unavailableAttempts == strategies.size ||
+                (Build.VERSION.SDK_INT == 30 && timedOutAttempts == strategies.size),
         )
     }
 
@@ -330,36 +340,41 @@ class AapClient(
             out.write(KEY_REQUEST); out.flush()
 
             val buf = ByteArray(4096)
+            val framer = AapPacketFramer()
             while (running) {
                 val n = sock.inputStream.read(buf)
                 if (n <= 0) break
-                // Classic L2CAP uses SEQPACKET semantics: one read is one complete AAP frame.
-                when (val packet = AapPacket.parse(buf.copyOf(n))) {
-                    is AapPacket.ConnectResponse -> {
-                        if (packet.status != 0) {
-                            throw IOException(
-                                "AirPods rejected AAP handshake (status 0x%04X)".format(packet.status)
-                            )
+                for (raw in framer.feed(buf.copyOf(n))) {
+                    when (val packet = AapPacket.parse(raw)) {
+                        is AapPacket.ConnectResponse -> {
+                            if (packet.status != 0) {
+                                throw IOException(
+                                    "AirPods rejected AAP handshake (status 0x%04X)".format(packet.status)
+                                )
+                            }
+                            markSessionActive(handshakeGuard)
                         }
-                        markSessionActive(handshakeGuard)
-                    }
 
-                    is AapPacket.Message -> {
-                        // A valid message is also proof that the peer accepted our handshake.
-                        markSessionActive(handshakeGuard)
-                        try {
-                            parseMessage(packet.command, packet.payload)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "parse error", e)
+                        is AapPacket.Message -> {
+                            // A valid message is also proof that the peer accepted our handshake.
+                            markSessionActive(handshakeGuard)
+                            try {
+                                parseMessage(packet.command, packet.payload)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "parse error", e)
+                            }
                         }
-                    }
 
-                    is AapPacket.Disconnect -> throw IOException("AirPods ended the AAP session")
-                    is AapPacket.Other -> Log.d(
-                        TAG,
-                        "Ignoring AAP packet type 0x%04X (${packet.raw.size} bytes)".format(packet.type)
-                    )
-                    null -> Log.w(TAG, "Ignoring truncated AAP packet ($n bytes)")
+                        is AapPacket.Disconnect -> throw IOException("AirPods ended the AAP session")
+                        is AapPacket.Other -> Log.d(
+                            TAG,
+                            "Ignoring AAP packet type 0x%04X (${packet.raw.size} bytes)".format(packet.type)
+                        )
+                        null -> Log.w(
+                            TAG,
+                            "Ignoring malformed AAP packet (${raw.size} bytes)"
+                        )
+                    }
                 }
             }
             if (running) failure = IOException("AirPods closed the AAP channel")
