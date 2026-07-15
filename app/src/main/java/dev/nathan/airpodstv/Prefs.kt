@@ -87,19 +87,52 @@ class Prefs(context: Context) {
         set(v) {
             val normalized = v?.uppercase()
             val changed = sp.getString("irk_hex", null) != normalized
-            sp.edit()
+            val editor = sp.edit()
                 .putString("irk_hex", normalized)
                 .also { if (changed) it.putBoolean("irk_verified", false) }
-                .apply()
+            if (normalized == null) {
+                editor.remove("irk_device_address")
+                    .putBoolean("identity_filter", false)
+            }
+            editor.apply()
         }
+
+    /** Classic Bluetooth address of the pair that supplied [irkHex]. */
+    var irkDeviceAddress: String?
+        get() = sp.getString("irk_device_address", null)
+        private set(v) = sp.edit().putString("irk_device_address", v).apply()
+
+    fun storeIdentityKey(address: String, hex: String) {
+        val normalized = hex.uppercase()
+        require(normalized.length == 32)
+        val changed = irkHex != normalized || irkDeviceAddress != address
+        sp.edit()
+            .putString("irk_hex", normalized)
+            .putString("irk_device_address", address)
+            .also { if (changed) it.putBoolean("irk_verified", false) }
+            .apply()
+    }
+
+    fun clearIdentity() {
+        sp.edit()
+            .remove("irk_hex")
+            .remove("irk_device_address")
+            .putBoolean("irk_verified", false)
+            .putBoolean("identity_filter", false)
+            .apply()
+    }
 
     /** True only after [irkHex] has successfully resolved a live beacon address. */
     var irkVerified: Boolean
-        get() = irkHex != null && sp.getBoolean("irk_verified", false)
-        set(v) = sp.edit().putBoolean("irk_verified", v && irkHex != null).apply()
+        get() = irkHex != null && irkDeviceAddress == deviceAddress &&
+            sp.getBoolean("irk_verified", false)
+        set(v) = sp.edit().putBoolean(
+            "irk_verified",
+            v && irkHex != null && irkDeviceAddress == deviceAddress,
+        ).apply()
 
     /** When the IRK is known, only react to beacons cryptographically proven to be ours. */
     var identityFilter: Boolean
         get() = sp.getBoolean("identity_filter", false)
-        set(v) = sp.edit().putBoolean("identity_filter", v).apply()
+        set(v) = sp.edit().putBoolean("identity_filter", v && irkVerified).apply()
 }

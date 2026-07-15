@@ -59,14 +59,22 @@ class BeaconGateTest {
     }
 
     @Test
-    fun unverifiedBadIdentityKeyFallsBackToDistance() {
+    fun strictIdentityRejectsUntilKeyIsVerified() {
         val result = evaluate(
             identityFilter = true,
             irk = invalidIrk,
             identityKeyVerified = false,
         )
-        assertTrue(result.passes)
-        assertEquals(BeaconGate.Reason.IDENTITY_FALLBACK, result.reason)
+        assertFalse(result.passes)
+        assertEquals(BeaconGate.Reason.IDENTITY_NOT_READY, result.reason)
+    }
+
+    @Test
+    fun strictIdentityNeverFallsBackWhenKeyIsMissing() {
+        val result = evaluate(identityFilter = true, irk = null)
+
+        assertFalse(result.passes)
+        assertEquals(BeaconGate.Reason.IDENTITY_NOT_READY, result.reason)
     }
 
     @Test

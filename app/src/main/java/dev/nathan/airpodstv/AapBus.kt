@@ -5,12 +5,27 @@ import android.os.Looper
 
 /** In-process state of the AAP session, for the settings UI. */
 object AapBus {
+    enum class SessionState {
+        DISABLED,
+        WAITING_FOR_CONNECTION,
+        CONNECTING,
+        ACTIVE,
+        RETRYING,
+        UNSUPPORTED,
+    }
+
     interface Listener {
         fun onAapChanged()
     }
 
     @Volatile
-    var sessionActive = false
+    var sessionState = SessionState.WAITING_FOR_CONNECTION
+
+    val sessionActive: Boolean
+        get() = sessionState == SessionState.ACTIVE
+
+    @Volatile
+    var sessionDetail: String? = null
 
     @Volatile
     var batteryLine: String? = null

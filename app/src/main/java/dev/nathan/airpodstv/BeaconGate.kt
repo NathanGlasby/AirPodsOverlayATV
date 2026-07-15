@@ -6,7 +6,7 @@ object BeaconGate {
     enum class Reason(val label: String) {
         ACCEPTED("accepted"),
         IDENTITY_MATCH("identity match"),
-        IDENTITY_FALLBACK("identity unverified; using distance"),
+        IDENTITY_NOT_READY("identity key not verified"),
         WRONG_MODEL("wrong model"),
         IDENTITY_MISMATCH("identity mismatch"),
         WEAK_SIGNAL("too far"),
@@ -18,10 +18,7 @@ object BeaconGate {
         val identityMatched: Boolean = false,
     )
 
-    /**
-     * Identity matching is fail-open until a captured key has matched a live RPA at least once.
-     * This prevents a stale or incorrectly captured key from permanently disabling detection.
-     */
+    /** Strict identity mode never falls back to distance: that would accept somebody else's pair. */
     fun evaluate(
         beacon: BeaconParser.Beacon,
         modelFilter: Boolean,
@@ -38,23 +35,23 @@ object BeaconGate {
         // Validate a stored key even while the strict filter is off, so enabling it later is safe.
         val identityMatches = irk?.let { RpaVerifier.verify(beacon.address, it) } == true
 
-        if (identityFilter && irk != null) {
-            if (identityMatches) {
-                return Decision(true, Reason.IDENTITY_MATCH, identityMatched = true)
+        if (identityFilter) {
+            if (irk == null || !identityKeyVerified) {
+                return Decision(
+                    passes = false,
+                    reason = Reason.IDENTITY_NOT_READY,
+                    identityMatched = identityMatches,
+                )
             }
-            if (identityKeyVerified) {
-                return Decision(false, Reason.IDENTITY_MISMATCH)
+            return if (identityMatches) {
+                Decision(true, Reason.IDENTITY_MATCH, identityMatched = true)
+            } else {
+                Decision(false, Reason.IDENTITY_MISMATCH)
             }
         }
 
         val passesDistance = beacon.rssi >= rssiThreshold
-        val fallback = identityFilter && irk != null && !identityKeyVerified
         return when {
-            passesDistance && fallback -> Decision(
-                true,
-                Reason.IDENTITY_FALLBACK,
-                identityMatched = identityMatches,
-            )
             passesDistance -> Decision(
                 true,
                 Reason.ACCEPTED,
