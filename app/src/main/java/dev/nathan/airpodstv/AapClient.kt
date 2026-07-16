@@ -29,7 +29,7 @@ class AapClient(
 ) {
     interface Listener {
         fun onSession(state: SessionState, detail: String? = null)
-        fun onBattery(batteries: Map<Component, Battery>)
+        fun onBattery(batteries: Map<Component, Battery?>)
         fun onEar(primary: Placement, secondary: Placement)
         fun onAncMode(wireMode: Int)
         fun onIrk(irk: ByteArray)
@@ -70,6 +70,34 @@ class AapClient(
         private val KEY_REQUEST = byteArrayOf(
             0x04, 0x00, 0x04, 0x00, 0x30, 0x00, 0x05, 0x00
         )
+
+        /** Decodes a battery delta, retaining unavailable values as component removals. */
+        internal fun decodeBatteryPayload(payload: ByteArray): Map<Component, Battery?> {
+            if (payload.isEmpty()) return emptyMap()
+            val count = payload[0].toInt() and 0xFF
+            val result = linkedMapOf<Component, Battery?>()
+            var offset = 1
+            for (i in 0 until count) {
+                if (offset + 5 > payload.size) break
+                val type = payload[offset].toInt() and 0xFF
+                val percent = payload[offset + 2].toInt() and 0xFF
+                val status = payload[offset + 3].toInt() and 0xFF
+                offset += 5
+                val component = when (type) {
+                    0x04 -> Component.LEFT
+                    0x02 -> Component.RIGHT
+                    0x08 -> Component.CASE
+                    else -> continue
+                }
+                // 127 is a phantom reading after case close; 255 means disconnected.
+                result[component] = if (percent > 100) {
+                    null
+                } else {
+                    Battery(percent, charging = status == 0x01)
+                }
+            }
+            return result
+        }
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -481,26 +509,7 @@ class AapClient(
     }
 
     private fun parseBattery(payload: ByteArray) {
-        if (payload.isEmpty()) return
-        val count = payload[0].toInt() and 0xFF
-        val result = mutableMapOf<Component, Battery>()
-        var offset = 1
-        for (i in 0 until count) {
-            if (offset + 5 > payload.size) break
-            val type = payload[offset].toInt() and 0xFF
-            val percent = payload[offset + 2].toInt() and 0xFF
-            val status = payload[offset + 3].toInt() and 0xFF
-            offset += 5
-            // >100: 127 = phantom reading after case close, 255 = disconnected.
-            if (percent > 100) continue
-            val component = when (type) {
-                0x04 -> Component.LEFT
-                0x02 -> Component.RIGHT
-                0x08 -> Component.CASE
-                else -> continue
-            }
-            result[component] = Battery(percent, charging = status == 0x01)
-        }
+        val result = decodeBatteryPayload(payload)
         if (result.isNotEmpty()) {
             main.post { listener.onBattery(result) }
         }

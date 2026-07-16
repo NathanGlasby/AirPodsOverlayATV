@@ -63,4 +63,16 @@ class EarPausePolicyTest {
         assertEquals(EarPausePolicy.Action.NONE, policy.onInEarCount(2))
         assertEquals(EarPausePolicy.Action.PAUSE, policy.onInEarCount(1))
     }
+
+    @Test
+    fun rebaselinePreservesPauseOwnershipAcrossSourceHandoff() {
+        val policy = EarPausePolicy()
+        policy.onInEarCount(2)
+        assertEquals(EarPausePolicy.Action.PAUSE, policy.onInEarCount(1))
+
+        policy.rebaseline()
+
+        assertEquals(EarPausePolicy.Action.NONE, policy.onInEarCount(0))
+        assertEquals(EarPausePolicy.Action.PLAY, policy.onInEarCount(1))
+    }
 }

@@ -27,16 +27,44 @@ object AapBus {
     @Volatile
     var sessionDetail: String? = null
 
-    @Volatile
-    var batteryLine: String? = null
+    private data class DeviceState(
+        val batteryLine: String? = null,
+        val ancMode: Int? = null,
+        val primaryPlacement: AapClient.Placement? = null,
+        val secondaryPlacement: AapClient.Placement? = null,
+    )
 
     @Volatile
-    var ancMode: Int? = null
+    private var deviceState = DeviceState()
+
+    val batteryLine: String?
+        get() = deviceState.batteryLine
+
+    val ancMode: Int?
+        get() = deviceState.ancMode
+
+    internal val primaryPlacement: AapClient.Placement?
+        get() = deviceState.primaryPlacement
+
+    internal val secondaryPlacement: AapClient.Placement?
+        get() = deviceState.secondaryPlacement
 
     @Volatile
     var listener: Listener? = null
 
     private val main = Handler(Looper.getMainLooper())
+
+    internal fun reconcileDeviceState(snapshot: AapDeviceState.Snapshot): Boolean {
+        val next = DeviceState(
+            batteryLine = snapshot.batteryLine,
+            ancMode = snapshot.ancMode,
+            primaryPlacement = snapshot.primaryPlacement,
+            secondaryPlacement = snapshot.secondaryPlacement,
+        )
+        if (deviceState == next) return false
+        deviceState = next
+        return true
+    }
 
     fun notifyChanged() {
         val l = listener ?: return

@@ -46,4 +46,9 @@ internal class EarPausePolicy {
         previousInEarCount = null
         pausedByPolicy = false
     }
+
+    /** Establishes the next count as a baseline without forgetting a pause we own. */
+    fun rebaseline() {
+        previousInEarCount = null
+    }
 }

@@ -108,6 +108,7 @@ class BleScanService : Service() {
 
     private val popupSession = PopupSession(SESSION_RESET_MS)
     private val aapSessionPolicy = AapSessionPolicy()
+    private val aapDeviceState = AapDeviceState()
     private val earPausePolicy = EarPausePolicy()
     private val lidClosePolicy = LidClosePolicy(BEACON_GONE_MS)
     private var popupIsTest = false
@@ -124,8 +125,6 @@ class BleScanService : Service() {
     private var aapTransportUnsupported = false
     private var pendingAapStart: Runnable? = null
     private var scanResumeAt = 0L
-    private var aapEarAuthoritative = false
-    private var aapBothPodsInCase = false
     private var earStreakValue: Int? = null
     private var earStreak = 0
     private var disconnectInFlight = false
@@ -455,17 +454,34 @@ class BleScanService : Service() {
     private fun handleConnectedBeacon(beacon: BeaconParser.Beacon) {
         val now = SystemClock.elapsedRealtime()
 
-        // AAP placement is transition-driven, so silence does not make it stale. BLE is
-        // only a fallback until the first complete AAP placement sample in this session.
-        if (!aapEarAuthoritative) {
-            val inEarCount = listOf(beacon.leftInEar, beacon.rightInEar).count { it }
-            handleEarCount(inEarCount, requireStreak = true)
+        // Do not mix placements from two sources. An AAP observation owns ear state until
+        // that session ends, even when it knows only one pod.
+        if (aapDeviceState.snapshot().earSource != AapDeviceState.EarSource.AAP) {
+            val left = when {
+                beacon.bothPodsInCase -> AapClient.Placement.IN_CASE
+                beacon.leftInEar -> AapClient.Placement.IN_EAR
+                else -> AapClient.Placement.OUT_OF_EAR
+            }
+            val right = when {
+                beacon.bothPodsInCase -> AapClient.Placement.IN_CASE
+                beacon.rightInEar -> AapClient.Placement.IN_EAR
+                else -> AapClient.Placement.OUT_OF_EAR
+            }
+            val ear = aapDeviceState.applyEarPlacement(
+                AapDeviceState.EarSource.BLE,
+                left,
+                right,
+            )
+            if (ear.changed) syncAapDeviceState()
+            handleEarReduction(ear, requireStreak = true)
         }
 
-        // AAP owns pod placement after its first complete sample. BLE may then add the
-        // reliable lid-closed edge, but it may not override AAP's in/out-of-case state.
+        val deviceState = aapDeviceState.snapshot()
+        val aapEarAuthoritative = deviceState.earSource == AapDeviceState.EarSource.AAP
+        // BLE may add its reliable lid-closed edge after AAP owns placement, but it may
+        // not fill or override a pod that the AAP sample did not identify.
         val lidAction = when {
-            aapEarAuthoritative && aapBothPodsInCase -> {
+            aapEarAuthoritative && deviceState.bothPodsInCase -> {
                 podsOutsideCaseStreak = 0
                 lidClosePolicy.onSignal(
                     bothPodsInCase = true,
@@ -576,6 +592,23 @@ class BleScanService : Service() {
 
     // ---- reactions ----
 
+    private fun handleEarReduction(
+        reduction: AapDeviceState.EarReduction,
+        requireStreak: Boolean,
+    ) {
+        if (reduction.sourceChanged || reduction.knownSetChanged) {
+            rebaselineReactionSource()
+        }
+        reduction.inEarCount?.let { handleEarCount(it, requireStreak) }
+    }
+
+    private fun rebaselineReactionSource() {
+        earPausePolicy.rebaseline()
+        earStreakValue = null
+        earStreak = 0
+        resetLidCloseCycle()
+    }
+
     /** BLE counts need two identical frames; AAP placement updates are trusted directly. */
     private fun handleEarCount(inEarCount: Int, requireStreak: Boolean) {
         if (!prefs.autoPause) {
@@ -676,6 +709,10 @@ class BleScanService : Service() {
         val device = connector.bondedDevice(address) ?: return
         val generation = ++aapGeneration
         aapDeviceAddress = address
+        if (aapDeviceState.beginSession(address, generation)) {
+            rebaselineReactionSource()
+            syncAapDeviceState()
+        }
         Log.i(TAG, "Starting AAP session")
         val client = AapClient(device, createAapListener(generation, address))
         aap = client
@@ -709,12 +746,8 @@ class BleScanService : Service() {
         aap = null
         client?.stop()
         aapSessionPolicy.reset()
-        aapEarAuthoritative = false
-        aapBothPodsInCase = false
+        resetAapDeviceSession()
         updateAapState(targetState)
-        AapBus.batteryLine = null
-        AapBus.ancMode = null
-        AapBus.notifyChanged()
         finishAapTransportAttempt()
     }
 
@@ -752,11 +785,8 @@ class BleScanService : Service() {
                     finishAapTransportAttempt()
                     aap = null
                     aapDeviceAddress = null
-                    aapEarAuthoritative = false
-                    aapBothPodsInCase = false
                     aapSessionPolicy.onFailure(SystemClock.elapsedRealtime())
-                    AapBus.batteryLine = null
-                    AapBus.ancMode = null
+                    resetAapDeviceSession()
                     updateAapState(
                         AapBus.SessionState.RETRYING,
                         detail ?: "AAP channel closed; retrying",
@@ -766,11 +796,8 @@ class BleScanService : Service() {
                     finishAapTransportAttempt()
                     aap = null
                     aapDeviceAddress = null
-                    aapEarAuthoritative = false
-                    aapBothPodsInCase = false
                     aapSessionPolicy.reset()
-                    AapBus.batteryLine = null
-                    AapBus.ancMode = null
+                    resetAapDeviceSession()
                     if (connector.isConnected(address)) {
                         aapTransportUnsupported = true
                         updateAapState(
@@ -785,46 +812,40 @@ class BleScanService : Service() {
                 }
                 AapClient.SessionState.STOPPED -> {
                     finishAapTransportAttempt()
+                    resetAapDeviceSession()
                     updateAapState(AapBus.SessionState.WAITING_FOR_CONNECTION)
                 }
             }
             AapBus.notifyChanged()
         }
 
-        override fun onBattery(batteries: Map<AapClient.Component, AapClient.Battery>) {
+        override fun onBattery(batteries: Map<AapClient.Component, AapClient.Battery?>) {
             if (!isCurrentAapClient(generation, address)) return
-            val parts = listOf(
-                AapClient.Component.LEFT to "L",
-                AapClient.Component.RIGHT to "R",
-                AapClient.Component.CASE to "Case",
-            ).mapNotNull { (component, label) ->
-                batteries[component]?.let {
-                    "$label ${it.percent}%" + if (it.charging) "⚡" else ""
-                }
+            val reduction = aapDeviceState.applyBattery(batteries)
+            if (reduction.changed) syncAapDeviceState()
+            reduction.announcement?.let { announcement ->
+                overlay?.setSubtitle(
+                    announcement,
+                    if (reduction.batteryLine == null) null else 0xFF64D987.toInt(),
+                )
             }
-            if (parts.isEmpty()) return
-            val batteryLine = parts.joinToString(" · ")
-            AapBus.batteryLine = batteryLine
-            AapBus.notifyChanged()
-            overlay?.setSubtitle(batteryLine, 0xFF64D987.toInt())
         }
 
         override fun onEar(primary: AapClient.Placement, secondary: AapClient.Placement) {
             if (!isCurrentAapClient(generation, address)) return
-            if (primary == AapClient.Placement.UNKNOWN ||
-                secondary == AapClient.Placement.UNKNOWN
-            ) {
-                Log.w(TAG, "Ignoring incomplete AAP placement sample: $primary/$secondary")
-                return
-            }
             val now = SystemClock.elapsedRealtime()
-            aapEarAuthoritative = true
-            val inEarCount = listOf(primary, secondary).count { it == AapClient.Placement.IN_EAR }
-            handleEarCount(inEarCount, requireStreak = false)
-            val bothInCase = primary == AapClient.Placement.IN_CASE &&
-                secondary == AapClient.Placement.IN_CASE
-            aapBothPodsInCase = bothInCase
-            if (bothInCase) {
+            val reduction = aapDeviceState.applyEarPlacement(
+                AapDeviceState.EarSource.AAP,
+                primary.takeUnless { it == AapClient.Placement.UNKNOWN },
+                secondary.takeUnless { it == AapClient.Placement.UNKNOWN },
+            )
+            if (reduction.changed) syncAapDeviceState()
+            handleEarReduction(reduction, requireStreak = false)
+            if (reduction.knownPlacementCount < 2) {
+                lidClosePolicy.reset()
+                podsOutsideCaseStreak = 0
+                Log.i(TAG, "AAP placement is partial: $primary/$secondary")
+            } else if (reduction.bothPodsInCase) {
                 lidClosePolicy.onSignal(
                     bothPodsInCase = true,
                     explicitlyClosed = false,
@@ -837,8 +858,7 @@ class BleScanService : Service() {
 
         override fun onAncMode(wireMode: Int) {
             if (!isCurrentAapClient(generation, address)) return
-            AapBus.ancMode = wireMode
-            AapBus.notifyChanged()
+            if (aapDeviceState.applyAncMode(wireMode)) syncAapDeviceState()
         }
 
         override fun onIrk(irk: ByteArray) {
@@ -863,6 +883,19 @@ class BleScanService : Service() {
         AapBus.sessionState = state
         AapBus.sessionDetail = detail
         if (changed) AapBus.notifyChanged()
+    }
+
+    private fun syncAapDeviceState() {
+        if (AapBus.reconcileDeviceState(aapDeviceState.snapshot())) {
+            AapBus.notifyChanged()
+        }
+    }
+
+    private fun resetAapDeviceSession() {
+        if (aapDeviceState.resetSession()) {
+            rebaselineReactionSource()
+        }
+        syncAapDeviceState()
     }
 
     private fun disconnectSelectedDevice(
@@ -919,8 +952,8 @@ class BleScanService : Service() {
     private fun resetConnectedReactions(keepConnectionFlag: Boolean = false) {
         earPausePolicy.reset()
         resetLidCloseCycle()
-        aapEarAuthoritative = false
-        aapBothPodsInCase = false
+        aapDeviceState.resetSession()
+        syncAapDeviceState()
         earStreakValue = null
         earStreak = 0
         if (!keepConnectionFlag) {
