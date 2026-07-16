@@ -119,5 +119,15 @@ class ConnectionAttemptTrackerTest {
         assertFalse(tracker.onAclConnected(address, nowMs = 300L))
     }
 
+    @Test
+    fun failedCallbackAfterAclStillClearsAttempt() {
+        val tracker = tracker()
+        val token = tracker.begin(address, nowMs = 100L)
+
+        assertTrue(tracker.onAclConnected(address, nowMs = 200L))
+        assertTrue(tracker.acceptCallback(token, address, success = false, nowMs = 300L))
+        assertFalse(tracker.onAclConnected(address, nowMs = 400L))
+    }
+
     private fun tracker(timeoutMs: Long = 30_000L) = ConnectionAttemptTracker(timeoutMs)
 }

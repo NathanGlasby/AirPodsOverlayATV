@@ -154,7 +154,6 @@ class BleScanService : Service() {
                         }
                         connector.disconnect(address)
                     } else {
-                        if (userInitiated) prefs.connectionPolicyBlocked = false
                         onDeviceConnected()
                     }
                 }
@@ -376,6 +375,7 @@ class BleScanService : Service() {
     override fun onDestroy() {
         isRunning = false
         instance = null
+        // Shutdown invalidates confirmed attempts too; dismissPopup only cancels pending work.
         connectionAttempts.cancelAll()
         stopAap(AapBus.SessionState.WAITING_FOR_CONNECTION)
         main.removeCallbacksAndMessages(null)
