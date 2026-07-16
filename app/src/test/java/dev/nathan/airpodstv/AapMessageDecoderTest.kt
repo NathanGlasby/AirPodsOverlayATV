@@ -56,7 +56,18 @@ class AapMessageDecoderTest {
 
         assertEquals(AapClient.Placement.IN_EAR, update.primary)
         assertEquals(AapClient.Placement.IN_CASE, update.secondary)
-        assertNull(AapMessageDecoder.decode(0x06, byteArrayOf(0, 9)))
+    }
+
+    @Test
+    fun oneKnownEarPlacementIsStillUseful() {
+        val update = AapMessageDecoder.decode(
+            0x06,
+            byteArrayOf(0, 9),
+        ) as AapMessageDecoder.Update.EarPlacement
+
+        assertEquals(AapClient.Placement.IN_EAR, update.primary)
+        assertEquals(AapClient.Placement.UNKNOWN, update.secondary)
+        assertNull(AapMessageDecoder.decode(0x06, byteArrayOf(8, 9)))
     }
 
     @Test

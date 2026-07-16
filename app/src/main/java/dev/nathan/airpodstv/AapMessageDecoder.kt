@@ -12,7 +12,7 @@ internal object AapMessageDecoder {
         ) : Update
 
         data class AncMode(val wireMode: Int) : Update
-        data class IdentityKey(val value: ByteArray) : Update
+        class IdentityKey(val value: ByteArray) : Update
     }
 
     fun usefulUpdate(packet: AapPacket): Update? = when (packet) {
@@ -56,16 +56,19 @@ internal object AapMessageDecoder {
 
     private fun decodeEarPlacement(payload: ByteArray): Update.EarPlacement? {
         if (payload.size < 2) return null
-        val primary = decodePlacement(payload[0].toInt() and 0xFF) ?: return null
-        val secondary = decodePlacement(payload[1].toInt() and 0xFF) ?: return null
+        val primary = decodePlacement(payload[0].toInt() and 0xFF)
+        val secondary = decodePlacement(payload[1].toInt() and 0xFF)
+        if (primary == AapClient.Placement.UNKNOWN && secondary == AapClient.Placement.UNKNOWN) {
+            return null
+        }
         return Update.EarPlacement(primary, secondary)
     }
 
-    private fun decodePlacement(value: Int): AapClient.Placement? = when (value) {
+    private fun decodePlacement(value: Int): AapClient.Placement = when (value) {
         0x00 -> AapClient.Placement.IN_EAR
         0x01 -> AapClient.Placement.OUT_OF_EAR
         0x02 -> AapClient.Placement.IN_CASE
-        else -> null
+        else -> AapClient.Placement.UNKNOWN
     }
 
     private fun decodeControl(payload: ByteArray): Update.AncMode? {
