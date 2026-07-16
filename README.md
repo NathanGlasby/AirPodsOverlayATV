@@ -1,26 +1,35 @@
 # AirPods Overlay for Android TV
 
-Android TV does nothing when you open your AirPods case near the TV. This app fixes
-that: a small "Connect your AirPods" popup appears over whatever you're watching.
-Press OK on the remote to connect, Back to dismiss.
+AirPods do not get Apple's connection popup on Android TV. This app watches for
+AirPods wake beacons and shows a small connection prompt over the current TV app.
+Press OK on the remote to start a connection attempt or Back to dismiss it.
 
-Built for a Xiaomi Mi Box S (2nd Gen, Android 11) and AirPods 4 with ANC. Other
-Android TV devices and AirPods models should work, but that's the tested combo.
+Hardware testing so far covers wake-beacon detection and the popup controls on a
+Xiaomi Mi Box S (2nd Gen, Android 11) with AirPods 4 with ANC. The other paths below
+are implemented, but they still need a recorded test on physical hardware.
 
-## What it does
+## Feature status
 
-- Shows a connect popup when your AirPods case wakes up nearby. There's an optional
-  auto-connect mode that skips the popup entirely.
-- Can block the TV's own auto-connect, so the AirPods connect only when you say so
-  and not every time you open the case in the same room.
-- After connecting, it can open a direct session with the AirPods over Apple's
-  accessory protocol. That gets you exact battery levels, noise control switching
-  (Off / ANC / Transparency / Adaptive), and in-ear detection.
-- Pauses playback when you take a pod out of your ear.
-- Disconnects when you close the case lid.
-- Can learn and verify your AirPods' identity key, then use the optional strict
-  identity filter to ignore other AirPods that wander past.
-- Trigger distance presets from about 1 m to anywhere in the room.
+| Feature | Current status |
+|---|---|
+| Detect the AirPods 4 pairing-wake beacon | Verified on the setup named above |
+| Show and control the connection popup | Verified on the setup named above |
+| Connect and disconnect through Android Bluetooth profiles | Implemented, needs a current hardware test |
+| Block and restore the TV's own auto-connect policy | Implemented, needs a current hardware test |
+| Open an Apple Accessory Protocol (AAP) session | Experimental |
+| Show exact left, right, and case battery levels | Experimental, depends on AAP |
+| Change Off, ANC, Transparency, and Adaptive modes | Experimental, depends on AAP |
+| Pause on ear removal and disconnect after case closure | Experimental |
+| Capture an identity key and ignore other nearby AirPods | Experimental |
+| Filter by estimated distance | Implemented, but the distance labels are not calibrated measurements |
+
+"Verified" means someone observed the behavior on the named TV and AirPods. It does
+not mean every Android TV Bluetooth stack supports it. "Implemented" means the code
+path exists and may have unit coverage, but the repository does not yet contain a
+complete physical test record for it.
+
+See [Device validation](docs/device-validation.md) for the test procedure and the
+information required before changing an experimental feature to verified.
 
 ## AirPods 4: double-tap the case
 
@@ -44,6 +53,9 @@ The model and identity filters are strict opt-in controls. Leave them off until 
 live-beacon view is working; every beacon line shows whether it was accepted and, if
 not, the exact rejection reason.
 
+Keep automatic pause and lid-close disconnect off during the first validation run.
+Enable them one at a time after basic scanning and connection recovery work.
+
 ## Build
 
 Standard Android Gradle project in Kotlin with a pinned Gradle wrapper:
@@ -60,16 +72,20 @@ in GitHub Actions using the `AIRPODS_KEYSTORE_B64`, `AIRPODS_KEYSTORE_PASSWORD`,
 `AIRPODS_KEY_ALIAS`, and `AIRPODS_KEY_PASSWORD` repository secrets. The release
 workflow verifies the APK signature and publishes a SHA-256 checksum.
 
+Before describing a build as hardware-verified, record its commit and APK checksum
+using the [device validation checklist](docs/device-validation.md).
+
 ## How it works
 
-Apple devices broadcast a manufacturer-specific BLE frame (company ID `0x004C`, type
-`0x07`) carrying lid state, in-ear flags, and battery nibbles. A foreground service
-scans for these frames and parses them in
+AirPods broadcast a manufacturer-specific BLE frame (company ID `0x004C`, type
+`0x07`). The current parser reads fields used for lid, ear, and approximate battery
+state. A foreground service scans for these frames and parses them in
 [BeaconParser.kt](app/src/main/java/dev/nathan/airpodstv/BeaconParser.kt). Connecting
 uses the hidden `BluetoothA2dp`/`BluetoothHeadset` profile APIs through reflection
 and [hiddenapibypass](https://github.com/LSPosed/AndroidHiddenApiBypass). The
-optional AAP session opens an insecure L2CAP channel on PSM `0x1001` for the things
-the beacons can't provide.
+experimental AAP path tries bonded secure and insecure Classic L2CAP socket variants
+on PSM `0x1001` for data the beacons cannot provide. The order depends on the Android
+version because vendor Bluetooth stacks do not behave consistently here.
 
 ## Credits
 
