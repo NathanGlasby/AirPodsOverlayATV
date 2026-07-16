@@ -199,8 +199,12 @@ class BleScanService : Service() {
         override fun run() {
             val now = SystemClock.elapsedRealtime()
             reconcileAapSession(now)
-            val silenceChecksAllowed = !aapTransportInFlight && scanner != null &&
-                now >= silenceChecksResumeAt
+            val silenceChecksAllowed = ScanOwnershipPolicy.canRunSilenceChecks(
+                scannerActive = scanner != null,
+                aapTransportInFlight = aapTransportInFlight,
+                nowMs = now,
+                resumeAtMs = silenceChecksResumeAt,
+            )
             if (silenceChecksAllowed &&
                 prefs.autoDisconnectOnLidClose &&
                 connector.isConnected(prefs.deviceAddress) &&
@@ -388,8 +392,13 @@ class BleScanService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startScan() {
-        if (scanner != null || aapTransportInFlight ||
-            SystemClock.elapsedRealtime() < scanResumeAt
+        val now = SystemClock.elapsedRealtime()
+        if (!ScanOwnershipPolicy.canStartScan(
+                scannerActive = scanner != null,
+                aapTransportInFlight = aapTransportInFlight,
+                nowMs = now,
+                resumeAtMs = scanResumeAt,
+            )
         ) return
         val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         if (adapter == null || !adapter.isEnabled) {
