@@ -108,7 +108,7 @@ Use quiet media at a safe volume. Enable one reaction at a time.
 
 | ID | Check | Expected result | Result | Notes |
 |---|---|---|---|---|
-| L1 | Deny notification permission on Android 13 or later | The scanner can still start when required Bluetooth permissions are granted | Not run | |
+| L1 | Deny notification permission on Android 13 or later | The app stays stopped and explains that notification permission is required | Not run | |
 | L2 | Revoke Bluetooth scan permission while the service is running | The service stops or reports the problem without a crash loop | Not run | |
 | L3 | Reboot with the scanner enabled | The service returns only when its prerequisites are available | Not run | |
 | L4 | Reboot with the scanner disabled | The service stays stopped | Not run | |
@@ -116,7 +116,7 @@ Use quiet media at a safe volume. Enable one reaction at a time.
 
 ## When a feature can be marked verified
 
-A feature can move to the verified section in the README when its relevant checks pass
-twice after a reboot on the same APK. Record the commit, APK SHA-256, TV build, AirPods
-firmware, and any model-specific limitation. A result on one device does not imply
-support for every Android TV Bluetooth stack.
+A feature can move to "Verified on the setup named above" in the README feature-status
+table when its relevant checks pass twice after a reboot on the same APK. Record the
+commit, APK SHA-256, TV build, AirPods firmware, and any model-specific limitation. A
+result on one device does not imply support for every Android TV Bluetooth stack.
