@@ -185,7 +185,7 @@ class ProfileConnector(private val context: Context) {
         for (profile in targets) {
             val proxy = available[profile]
             if (proxy == null) {
-                failed += profile
+                if (AudioProfilePlan.missingProxyBlocksDisconnect(profile)) failed += profile
                 continue
             }
             try {
@@ -404,10 +404,16 @@ class ProfileConnector(private val context: Context) {
         val readyStartedAt = android.os.SystemClock.elapsedRealtime()
         lateinit var awaitProfiles: Runnable
         awaitProfiles = Runnable {
+            val elapsed = android.os.SystemClock.elapsedRealtime() - readyStartedAt
+            val available = availableProfiles()
             when {
-                AudioProfilePlan.isReady(availableProfiles().keys) ->
+                AudioProfilePlan.canApplyPolicy(
+                    available = available.keys,
+                    optionalProfilePending = headsetRequested,
+                    waitExpired = elapsed >= profileReadyTimeoutMs,
+                ) ->
                     connectReady(device, address, timeoutMs, callback)
-                android.os.SystemClock.elapsedRealtime() - readyStartedAt >= profileReadyTimeoutMs ->
+                elapsed >= profileReadyTimeoutMs ->
                     callback(ConnectResult.ProfilesUnavailable)
                 else -> {
                     open()

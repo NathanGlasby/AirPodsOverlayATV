@@ -19,6 +19,8 @@ internal object AudioProfilePlan {
 
     fun isAudioConnected(connected: Set<Profile>): Boolean = Profile.A2DP in connected
 
+    fun missingProxyBlocksDisconnect(profile: Profile): Boolean = profile == Profile.A2DP
+
     fun isDisconnectComplete(
         targets: Set<Profile>,
         connected: Set<Profile>,

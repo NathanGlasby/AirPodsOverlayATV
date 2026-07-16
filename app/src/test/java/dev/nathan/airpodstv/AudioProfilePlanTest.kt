@@ -118,4 +118,14 @@ class AudioProfilePlanTest {
             )
         )
     }
+
+    @Test
+    fun lostOptionalProxyDoesNotBlockDisconnectCompletion() {
+        assertFalse(
+            AudioProfilePlan.missingProxyBlocksDisconnect(AudioProfilePlan.Profile.HEADSET)
+        )
+        assertTrue(
+            AudioProfilePlan.missingProxyBlocksDisconnect(AudioProfilePlan.Profile.A2DP)
+        )
+    }
 }
