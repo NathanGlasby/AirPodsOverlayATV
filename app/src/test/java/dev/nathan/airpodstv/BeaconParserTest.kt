@@ -20,6 +20,16 @@ class BeaconParserTest {
         this[8] = lidByte.toByte()
     }
 
+    private fun assertRejectedFrame(data: ByteArray) {
+        assertNull(
+            BeaconParser.parseManufacturerData(
+                data,
+                address = "?",
+                rssi = -65,
+            )
+        )
+    }
+
     @Test
     fun distinguishesTheBroadcastingPodFromThePodLeftInCase() {
         assertTrue(BeaconParser.decodeCaseState(status = 0x40, lidByte = 0).podsInCase)
@@ -94,29 +104,20 @@ class BeaconParserTest {
     }
 
     @Test
-    fun rejectsFramesWithTheWrongHeader() {
+    fun rejectsFramesWithTheWrongType() {
         val valid = frame(status = 0x35, lidByte = 0x13)
+        assertRejectedFrame(valid.apply { this[0] = 0x06 })
+    }
 
-        assertNull(
-            BeaconParser.parseManufacturerData(
-                valid.clone().apply { this[0] = 0x06 },
-                address = "?",
-                rssi = -65,
-            )
-        )
-        assertNull(
-            BeaconParser.parseManufacturerData(
-                valid.clone().apply { this[1] = 0x18 },
-                address = "?",
-                rssi = -65,
-            )
-        )
-        assertNull(
-            BeaconParser.parseManufacturerData(
-                valid.clone().apply { this[2] = 0x00 },
-                address = "?",
-                rssi = -65,
-            )
-        )
+    @Test
+    fun rejectsFramesWithTheWrongDeclaredLength() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+        assertRejectedFrame(valid.apply { this[1] = 0x18 })
+    }
+
+    @Test
+    fun rejectsFramesWithTheWrongPrefix() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+        assertRejectedFrame(valid.apply { this[2] = 0x00 })
     }
 }
