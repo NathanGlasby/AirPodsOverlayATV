@@ -57,6 +57,45 @@ class ConnectedReactionControllerTest {
     }
 
     @Test
+    fun aapHandoffRequiresFreshBleFramesAfterTheSameCountWasPrimed() {
+        val controller = controller()
+        controller.onBleSample(ble(inEarCount = 2, nowMs = 100L))
+        controller.onBleSample(ble(inEarCount = 2, nowMs = 200L))
+        assertTrue(
+            ConnectedReactionController.Action.PAUSE_MEDIA in
+                controller.onAapSample(
+                    aap(inEarCount = 1, bothPodsInCase = false, nowMs = 300L)
+                )
+        )
+
+        controller.onAapUnavailable()
+
+        assertFalse(controller.onBleSample(ble(inEarCount = 2, nowMs = 400L)).hasMediaAction())
+        assertTrue(
+            ConnectedReactionController.Action.PLAY_MEDIA in
+                controller.onBleSample(ble(inEarCount = 2, nowMs = 500L))
+        )
+    }
+
+    @Test
+    fun aapHandoffClearsThePrimedBleOutsideCaseStreak() {
+        val controller = controller()
+        controller.onBleSample(ble(bothPodsInCase = false, nowMs = 100L))
+        controller.onAapSample(aap(bothPodsInCase = true, nowMs = 200L))
+
+        controller.onAapUnavailable()
+
+        assertFalse(
+            ConnectedReactionController.Action.RESET_LID_DISCONNECT in
+                controller.onBleSample(ble(bothPodsInCase = false, nowMs = 300L))
+        )
+        assertTrue(
+            ConnectedReactionController.Action.RESET_LID_DISCONNECT in
+                controller.onBleSample(ble(bothPodsInCase = false, nowMs = 400L))
+        )
+    }
+
+    @Test
     fun explicitClosedCaseRequestsDisconnectOnce() {
         val controller = controller()
         val first = controller.onBleSample(

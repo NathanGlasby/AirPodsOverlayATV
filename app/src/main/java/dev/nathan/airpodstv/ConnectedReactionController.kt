@@ -137,6 +137,9 @@ internal class ConnectedReactionController(
     fun onAapUnavailable() {
         aapEarAuthoritative = false
         aapBothPodsInCase = false
+        bleEarStreakValue = null
+        bleEarStreak = 0
+        podsOutsideCaseStreak = 0
     }
 
     fun onScannerUnavailable() {

@@ -12,15 +12,32 @@ fun normalizedCommit(raw: String?): String? = raw
     ?.takeIf { it.matches(Regex("[0-9a-fA-F]{7,40}")) }
     ?.take(12)
 
-val buildCommit = normalizedCommit(providers.environmentVariable("GITHUB_SHA").orNull)
-    ?: normalizedCommit(
-        runCatching {
-            providers.exec {
-                commandLine("git", "rev-parse", "--short=12", "HEAD")
-            }.standardOutput.asText.get()
-        }.getOrNull()
-    )
-    ?: "local"
+val environmentCommit = normalizedCommit(providers.environmentVariable("GITHUB_SHA").orNull)
+val repositoryCommit = normalizedCommit(
+    runCatching {
+        providers.exec {
+            commandLine("git", "rev-parse", "--short=12", "HEAD")
+        }.standardOutput.asText.get()
+    }.getOrNull()
+)
+val repositoryStatus = runCatching {
+    providers.exec {
+        commandLine(
+            "git",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        )
+    }.standardOutput.asText.get()
+}.getOrNull()
+val sourceCommit = environmentCommit ?: repositoryCommit
+val buildCommit = when {
+    sourceCommit == null -> "local"
+    repositoryStatus == null -> "$sourceCommit (unverified)"
+    repositoryStatus.isNotBlank() -> "$sourceCommit (dirty)"
+    else -> sourceCommit
+}
 
 val releaseStorePath = providers.environmentVariable("AIRPODS_KEYSTORE_PATH").orNull
 val releaseStorePassword = providers.environmentVariable("AIRPODS_KEYSTORE_PASSWORD").orNull
