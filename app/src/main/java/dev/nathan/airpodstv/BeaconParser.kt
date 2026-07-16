@@ -16,6 +16,10 @@ import android.bluetooth.le.ScanResult
 object BeaconParser {
 
     const val APPLE_COMPANY_ID = 0x004C
+    private const val PROXIMITY_FRAME_SIZE = 27
+    private const val PROXIMITY_MESSAGE_TYPE = 0x07
+    private const val PROXIMITY_PAYLOAD_LENGTH = 0x19
+    private const val PROXIMITY_PREFIX = 0x01
 
     enum class LidState { OPEN, CLOSED, UNKNOWN }
 
@@ -101,10 +105,10 @@ object BeaconParser {
     ): Beacon? {
         // Type 0x07 is also used by shorter identity-address frames whose bytes do not
         // follow this layout. Accept only the complete proximity-pairing payload.
-        if (data.size < 27) return null
-        if (data[0].toInt() and 0xFF != 0x07) return null
-        if (data[1].toInt() and 0xFF != 0x19) return null
-        if (data[2].toInt() and 0xFF != 0x01) return null
+        if (data.size != PROXIMITY_FRAME_SIZE) return null
+        if (data[0].toInt() and 0xFF != PROXIMITY_MESSAGE_TYPE) return null
+        if (data[1].toInt() and 0xFF != PROXIMITY_PAYLOAD_LENGTH) return null
+        if (data[2].toInt() and 0xFF != PROXIMITY_PREFIX) return null
 
         val model = ((data[3].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)
         val status = data[5].toInt() and 0xFF

@@ -2,6 +2,7 @@ package dev.nathan.airpodstv
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -73,22 +74,49 @@ class BeaconParserTest {
     }
 
     @Test
-    fun rejectsShortOrWrongPrefixTypeSevenFrames() {
-        assertEquals(
-            null,
+    fun rejectsFramesWithTheWrongSize() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+
+        assertNull(
             BeaconParser.parseManufacturerData(
-                ByteArray(11).apply { this[0] = 0x07 },
+                valid.copyOf(valid.size - 1),
                 address = "?",
                 rssi = -65,
-            ),
+            )
         )
-        assertEquals(
-            null,
+        assertNull(
             BeaconParser.parseManufacturerData(
-                frame(status = 0x35, lidByte = 0x13).apply { this[2] = 0x00 },
+                valid.copyOf(valid.size + 1),
                 address = "?",
                 rssi = -65,
-            ),
+            )
+        )
+    }
+
+    @Test
+    fun rejectsFramesWithTheWrongHeader() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+
+        assertNull(
+            BeaconParser.parseManufacturerData(
+                valid.clone().apply { this[0] = 0x06 },
+                address = "?",
+                rssi = -65,
+            )
+        )
+        assertNull(
+            BeaconParser.parseManufacturerData(
+                valid.clone().apply { this[1] = 0x18 },
+                address = "?",
+                rssi = -65,
+            )
+        )
+        assertNull(
+            BeaconParser.parseManufacturerData(
+                valid.clone().apply { this[2] = 0x00 },
+                address = "?",
+                rssi = -65,
+            )
         )
     }
 }
