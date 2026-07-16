@@ -206,13 +206,25 @@ class ProfileConnector(private val context: Context) {
      * for this device until re-allowed. Note: forbidding while connected causes
      * the OS to disconnect the device.
      */
-    fun setAutoConnectAllowed(address: String?, allowed: Boolean): Boolean {
+    fun setAutoConnectAllowed(
+        address: String?,
+        allowed: Boolean,
+        optionalProfileWaitExpired: Boolean = false,
+    ): Boolean {
         if (!ensureHiddenApiAccess()) return false
         val device = bondedDevice(address) ?: return false
         val value = if (allowed) CONNECTION_POLICY_ALLOWED else 0
         val available = availableProfiles()
+        if (!AudioProfilePlan.canApplyPolicy(
+                available = available.keys,
+                optionalProfilePending = headsetRequested,
+                waitExpired = optionalProfileWaitExpired,
+            )
+        ) {
+            Log.w(TAG, "Policy change deferred while audio profiles are still binding")
+            return false
+        }
         val targets = AudioProfilePlan.operationTargets(available.keys)
-        if (targets.isEmpty()) return false
         var allSucceeded = true
         for (profile in targets) {
             val proxy = available.getValue(profile)
@@ -257,14 +269,21 @@ class ProfileConnector(private val context: Context) {
         attempt = Runnable {
             val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
             val available = availableProfiles()
+            val waitExpired = elapsed >= timeoutMs
             when {
                 AudioProfilePlan.canApplyPolicy(
                     available = available.keys,
                     optionalProfilePending = headsetRequested,
-                    waitExpired = elapsed >= timeoutMs,
+                    waitExpired = waitExpired,
                 ) ->
-                    callback(setAutoConnectAllowed(address, allowed))
-                elapsed >= timeoutMs -> callback(false)
+                    callback(
+                        setAutoConnectAllowed(
+                            address = address,
+                            allowed = allowed,
+                            optionalProfileWaitExpired = waitExpired,
+                        )
+                    )
+                waitExpired -> callback(false)
                 else -> {
                     open()
                     main.postDelayed(attempt, 100L)
@@ -406,14 +425,21 @@ class ProfileConnector(private val context: Context) {
         awaitProfiles = Runnable {
             val elapsed = android.os.SystemClock.elapsedRealtime() - readyStartedAt
             val available = availableProfiles()
+            val waitExpired = elapsed >= profileReadyTimeoutMs
             when {
                 AudioProfilePlan.canApplyPolicy(
                     available = available.keys,
                     optionalProfilePending = headsetRequested,
-                    waitExpired = elapsed >= profileReadyTimeoutMs,
+                    waitExpired = waitExpired,
                 ) ->
-                    connectReady(device, address, timeoutMs, callback)
-                elapsed >= profileReadyTimeoutMs ->
+                    connectReady(
+                        device = device,
+                        address = address,
+                        timeoutMs = timeoutMs,
+                        optionalProfileWaitExpired = waitExpired,
+                        callback = callback,
+                    )
+                waitExpired ->
                     callback(ConnectResult.ProfilesUnavailable)
                 else -> {
                     open()
@@ -428,6 +454,7 @@ class ProfileConnector(private val context: Context) {
         device: BluetoothDevice,
         address: String?,
         timeoutMs: Long,
+        optionalProfileWaitExpired: Boolean,
         callback: (ConnectResult) -> Unit,
     ) {
         val audioProxy = a2dp
@@ -436,7 +463,11 @@ class ProfileConnector(private val context: Context) {
             return
         }
         // A forbidden connection policy makes connect() a no-op, so allow it first.
-        setAutoConnectAllowed(address, true)
+        setAutoConnectAllowed(
+            address = address,
+            allowed = true,
+            optionalProfileWaitExpired = optionalProfileWaitExpired,
+        )
         val audioRequested = connectProfile(audioProxy, device)
         headset?.let { connectProfile(it, device) }
         if (!audioRequested) {
