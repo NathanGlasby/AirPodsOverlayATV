@@ -61,4 +61,15 @@ class LidClosePolicyTest {
 
         assertEquals(LidClosePolicy.Action.NONE, policy.onTime(10_000L))
     }
+
+    @Test
+    fun transportFailureKeepsAnArmedSilenceDisconnectCycle() {
+        val policy = LidClosePolicy(silenceTimeoutMs = 5_000L)
+        policy.onSignal(bothPodsInCase = true, explicitlyClosed = false, nowMs = 1_000L)
+
+        policy.onTransportUnavailable()
+
+        assertEquals(LidClosePolicy.Action.NONE, policy.onTime(5_999L))
+        assertEquals(LidClosePolicy.Action.DISCONNECT, policy.onTime(6_000L))
+    }
 }

@@ -45,6 +45,7 @@ internal class AapDeviceState {
     )
 
     data class EarReduction(
+        val accepted: Boolean,
         val changed: Boolean,
         val sourceChanged: Boolean,
         val knownSetChanged: Boolean,
@@ -104,13 +105,26 @@ internal class AapDeviceState {
 
     /**
      * Replaces the placement observation for [source]. A source handoff first clears the
-     * previous source, so a missing pod is never borrowed from stale state.
+     * previous source, so a missing pod is never borrowed from stale state. An observation
+     * with no known pod is rejected because it cannot safely establish source authority.
      */
     fun applyEarPlacement(
         source: EarSource,
         primary: AapClient.Placement?,
         secondary: AapClient.Placement?,
     ): EarReduction {
+        if (primary == null && secondary == null) {
+            val current = snapshot()
+            return EarReduction(
+                accepted = false,
+                changed = false,
+                sourceChanged = false,
+                knownSetChanged = false,
+                inEarCount = current.inEarCount,
+                knownPlacementCount = current.knownPlacementCount,
+                bothPodsInCase = current.bothPodsInCase,
+            )
+        }
         val previousSource = earSource
         val previousPrimary = primaryPlacement
         val previousSecondary = secondaryPlacement
@@ -131,6 +145,7 @@ internal class AapDeviceState {
         val knownSetChanged = sourceChanged ||
             previousKnownMask != knownMask(primaryPlacement, secondaryPlacement)
         return EarReduction(
+            accepted = true,
             changed = changed,
             sourceChanged = sourceChanged,
             knownSetChanged = knownSetChanged,

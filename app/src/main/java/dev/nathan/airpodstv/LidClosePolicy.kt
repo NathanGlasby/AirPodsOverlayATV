@@ -39,6 +39,14 @@ internal class LidClosePolicy(private val silenceTimeoutMs: Long) {
         return emitDisconnectIf(armed && silentLongEnough)
     }
 
+    /**
+     * A transport gap is not evidence that a pod left the case. Keep the last reliable
+     * case signal armed so its silence deadline can still complete the disconnect cycle.
+     */
+    fun onTransportUnavailable() {
+        // Intentionally retain the armed signal and its original deadline.
+    }
+
     fun reset() {
         armed = false
         disconnectEmitted = false

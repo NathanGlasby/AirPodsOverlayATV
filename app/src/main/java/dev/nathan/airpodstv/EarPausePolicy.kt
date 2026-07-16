@@ -12,6 +12,7 @@ internal class EarPausePolicy {
 
     private var previousInEarCount: Int? = null
     private var pausedByPolicy = false
+    private var countBeforeRebaseline: Int? = null
 
     fun onInEarCount(inEarCount: Int, playbackActive: Boolean = true): Action {
         require(inEarCount in 0..2) { "inEarCount must be between 0 and 2" }
@@ -19,7 +20,14 @@ internal class EarPausePolicy {
         val previous = previousInEarCount
         if (previous == null) {
             previousInEarCount = inEarCount
-            return Action.NONE
+            val beforeHandoff = countBeforeRebaseline
+            countBeforeRebaseline = null
+            return if (pausedByPolicy && beforeHandoff != null && inEarCount > beforeHandoff) {
+                pausedByPolicy = false
+                Action.PLAY
+            } else {
+                Action.NONE
+            }
         }
         if (previous == inEarCount) return Action.NONE
 
@@ -45,10 +53,12 @@ internal class EarPausePolicy {
     fun reset() {
         previousInEarCount = null
         pausedByPolicy = false
+        countBeforeRebaseline = null
     }
 
     /** Establishes the next count as a baseline without forgetting a pause we own. */
     fun rebaseline() {
+        previousInEarCount?.let { countBeforeRebaseline = it }
         previousInEarCount = null
     }
 }

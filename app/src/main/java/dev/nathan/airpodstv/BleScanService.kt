@@ -596,6 +596,7 @@ class BleScanService : Service() {
         reduction: AapDeviceState.EarReduction,
         requireStreak: Boolean,
     ) {
+        if (!reduction.accepted) return
         if (reduction.sourceChanged || reduction.knownSetChanged) {
             rebaselineReactionSource()
         }
@@ -603,10 +604,14 @@ class BleScanService : Service() {
     }
 
     private fun rebaselineReactionSource() {
+        rebaselineEarReaction()
+        resetLidCloseCycle()
+    }
+
+    private fun rebaselineEarReaction() {
         earPausePolicy.rebaseline()
         earStreakValue = null
         earStreak = 0
-        resetLidCloseCycle()
     }
 
     /** BLE counts need two identical frames; AAP placement updates are trusted directly. */
@@ -710,7 +715,8 @@ class BleScanService : Service() {
         val generation = ++aapGeneration
         aapDeviceAddress = address
         if (aapDeviceState.beginSession(address, generation)) {
-            rebaselineReactionSource()
+            // Starting or retrying the transport does not invalidate reliable case evidence.
+            rebaselineEarReaction()
             syncAapDeviceState()
         }
         Log.i(TAG, "Starting AAP session")
@@ -737,7 +743,10 @@ class BleScanService : Service() {
         main.postDelayed(delayedStart, AAP_RADIO_SETTLE_MS)
     }
 
-    private fun stopAap(targetState: AapBus.SessionState) {
+    private fun stopAap(
+        targetState: AapBus.SessionState,
+        preserveLidCycle: Boolean = false,
+    ) {
         ++aapGeneration
         pendingAapStart?.let { main.removeCallbacks(it) }
         pendingAapStart = null
@@ -746,7 +755,7 @@ class BleScanService : Service() {
         aap = null
         client?.stop()
         aapSessionPolicy.reset()
-        resetAapDeviceSession()
+        resetAapDeviceSession(preserveLidCycle = preserveLidCycle)
         updateAapState(targetState)
         finishAapTransportAttempt()
     }
@@ -786,7 +795,7 @@ class BleScanService : Service() {
                     aap = null
                     aapDeviceAddress = null
                     aapSessionPolicy.onFailure(SystemClock.elapsedRealtime())
-                    resetAapDeviceSession()
+                    resetAapDeviceSession(preserveLidCycle = true)
                     updateAapState(
                         AapBus.SessionState.RETRYING,
                         detail ?: "AAP channel closed; retrying",
@@ -797,7 +806,7 @@ class BleScanService : Service() {
                     aap = null
                     aapDeviceAddress = null
                     aapSessionPolicy.reset()
-                    resetAapDeviceSession()
+                    resetAapDeviceSession(preserveLidCycle = true)
                     if (connector.isConnected(address)) {
                         aapTransportUnsupported = true
                         updateAapState(
@@ -812,7 +821,7 @@ class BleScanService : Service() {
                 }
                 AapClient.SessionState.STOPPED -> {
                     finishAapTransportAttempt()
-                    resetAapDeviceSession()
+                    resetAapDeviceSession(preserveLidCycle = true)
                     updateAapState(AapBus.SessionState.WAITING_FOR_CONNECTION)
                 }
             }
@@ -839,6 +848,10 @@ class BleScanService : Service() {
                 primary.takeUnless { it == AapClient.Placement.UNKNOWN },
                 secondary.takeUnless { it == AapClient.Placement.UNKNOWN },
             )
+            if (!reduction.accepted) {
+                Log.w(TAG, "Ignoring all-unknown AAP placement sample")
+                return
+            }
             if (reduction.changed) syncAapDeviceState()
             handleEarReduction(reduction, requireStreak = false)
             if (reduction.knownPlacementCount < 2) {
@@ -891,9 +904,14 @@ class BleScanService : Service() {
         }
     }
 
-    private fun resetAapDeviceSession() {
+    private fun resetAapDeviceSession(preserveLidCycle: Boolean = false) {
         if (aapDeviceState.resetSession()) {
-            rebaselineReactionSource()
+            rebaselineEarReaction()
+            if (preserveLidCycle) {
+                lidClosePolicy.onTransportUnavailable()
+            } else {
+                resetLidCloseCycle()
+            }
         }
         syncAapDeviceState()
     }
@@ -909,7 +927,10 @@ class BleScanService : Service() {
         disconnectInFlight = true
         lidDisconnectAttempts++
         Log.i(TAG, "$reason; disconnecting $address")
-        stopAap(AapBus.SessionState.WAITING_FOR_CONNECTION)
+        stopAap(
+            targetState = AapBus.SessionState.WAITING_FOR_CONNECTION,
+            preserveLidCycle = true,
+        )
         connector.disconnectWhenReady(address) { result ->
             // A reset, new connection, or device change owns the state now; an old
             // callback must never disconnect or mutate that newer session.

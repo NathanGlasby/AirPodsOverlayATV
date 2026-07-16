@@ -156,6 +156,29 @@ class AapDeviceStateTest {
     }
 
     @Test
+    fun allUnknownAapPlacementDoesNotClaimAuthority() {
+        val state = AapDeviceState()
+        state.applyEarPlacement(
+            AapDeviceState.EarSource.BLE,
+            AapClient.Placement.IN_EAR,
+            AapClient.Placement.OUT_OF_EAR,
+        )
+
+        val rejected = state.applyEarPlacement(
+            AapDeviceState.EarSource.AAP,
+            primary = null,
+            secondary = null,
+        )
+
+        assertFalse(rejected.accepted)
+        assertFalse(rejected.changed)
+        assertFalse(rejected.sourceChanged)
+        assertEquals(AapDeviceState.EarSource.BLE, state.snapshot().earSource)
+        assertEquals(AapClient.Placement.IN_EAR, state.snapshot().primaryPlacement)
+        assertEquals(AapClient.Placement.OUT_OF_EAR, state.snapshot().secondaryPlacement)
+    }
+
+    @Test
     fun duplicateEarPlacementIsReportedWithoutChangingState() {
         val state = AapDeviceState()
         state.applyEarPlacement(
