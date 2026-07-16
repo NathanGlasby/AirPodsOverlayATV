@@ -110,10 +110,10 @@ class BleScanService : Service() {
     private val aapSessionPolicy = AapSessionPolicy()
     private val earPausePolicy = EarPausePolicy()
     private val lidClosePolicy = LidClosePolicy(BEACON_GONE_MS)
+    private val connectionAttempts = ConnectionAttemptTracker(USER_CONNECT_WINDOW_MS)
     private var popupIsTest = false
     private var latestBeacon: BeaconParser.Beacon? = null
     private var latestAcceptedBeacon: BeaconParser.Beacon? = null
-    private var connectRequestedAt = 0L
     private var irkBytes: ByteArray? = null
     private var identityKeyVerified = false
     private var nextScanRetryAt = 0L
@@ -138,31 +138,40 @@ class BleScanService : Service() {
     private val aclReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-            if (device?.address == null || device.address != prefs.deviceAddress) return
+            val address = device?.address ?: return
+            if (!address.equals(prefs.deviceAddress, ignoreCase = true)) return
             when (intent.action) {
                 BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                    val elapsedSinceRequest = SystemClock.elapsedRealtime() - connectRequestedAt
-                    val userInitiated = connectRequestedAt != 0L &&
-                        elapsedSinceRequest in 0 until USER_CONNECT_WINDOW_MS
+                    val userInitiated = connectionAttempts.onAclConnected(
+                        address,
+                        SystemClock.elapsedRealtime(),
+                    )
                     if (prefs.blockAutoConnect && !userInitiated) {
-                        Log.i(TAG, "OS auto-connected ${device.address}; blocking")
+                        Log.i(TAG, "OS auto-connected $address; blocking")
                         // Forbidding the policy also makes the OS drop the link.
-                        if (connector.setAutoConnectAllowed(prefs.deviceAddress, false)) {
+                        if (connector.setAutoConnectAllowed(address, false)) {
                             prefs.connectionPolicyBlocked = true
                         }
-                        connector.disconnect(prefs.deviceAddress)
+                        connector.disconnect(address)
                     } else {
+                        if (userInitiated) prefs.connectionPolicyBlocked = false
                         onDeviceConnected()
                     }
                 }
                 BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                    connectionAttempts.onAclDisconnected(
+                        address,
+                        SystemClock.elapsedRealtime(),
+                    )
                     aapTransportUnsupported = false
                     stopAap(AapBus.SessionState.WAITING_FOR_CONNECTION)
                     resetConnectedReactions()
                     // Re-arm the block once the user-approved session ends.
                     if (prefs.blockAutoConnect) {
                         main.postDelayed({
-                            if (connector.setAutoConnectAllowed(prefs.deviceAddress, false)) {
+                            if (address.equals(prefs.deviceAddress, ignoreCase = true) &&
+                                connector.setAutoConnectAllowed(address, false)
+                            ) {
                                 prefs.connectionPolicyBlocked = true
                             }
                         }, 1500L)
@@ -314,6 +323,7 @@ class BleScanService : Service() {
                 }
             }
             ACTION_DEVICE_CHANGED -> {
+                connectionAttempts.cancelAll()
                 aapTransportUnsupported = false
                 val oldAddress = intent.getStringExtra(EXTRA_OLD_DEVICE_ADDRESS)
                 if (prefs.blockAutoConnect && oldAddress != null) {
@@ -366,6 +376,7 @@ class BleScanService : Service() {
     override fun onDestroy() {
         isRunning = false
         instance = null
+        connectionAttempts.cancelAll()
         stopAap(AapBus.SessionState.WAITING_FOR_CONNECTION)
         main.removeCallbacksAndMessages(null)
         try {
@@ -529,19 +540,7 @@ class BleScanService : Service() {
         val name = prefs.displayName ?: latestBeacon?.modelName ?: "AirPods"
         val ov = OverlayController(
             this,
-            onConnect = {
-                connectRequestedAt = SystemClock.elapsedRealtime()
-                connector.connect(prefs.deviceAddress) { result ->
-                    val ok = result is ProfileConnector.ConnectResult.Success
-                    if (ok) prefs.connectionPolicyBlocked = false
-                    overlay?.setResult(ok, message = result.message)
-                    prefs.serviceStatus = result.message
-                    if (ok) {
-                        popupSession.suppress()
-                        onDeviceConnected()
-                    }
-                }
-            },
+            onConnect = { connectFromPopup() },
             onDismiss = {
                 dismissPopup()
                 popupSession.suppress()
@@ -555,9 +554,30 @@ class BleScanService : Service() {
         }
         if (!testMode && prefs.autoConnect) {
             ov.setConnecting()
-            connectRequestedAt = SystemClock.elapsedRealtime()
-            connector.connect(prefs.deviceAddress) { result ->
-                val ok = result is ProfileConnector.ConnectResult.Success
+            connectFromPopup()
+        }
+    }
+
+    private fun connectFromPopup() {
+        val address = prefs.deviceAddress?.takeIf { it.isNotBlank() }
+        if (address == null) {
+            val message = "No paired AirPods are selected"
+            overlay?.setResult(success = false, message = message)
+            prefs.serviceStatus = message
+            return
+        }
+        val token = connectionAttempts.begin(address, SystemClock.elapsedRealtime())
+        connector.connect(address) { result ->
+            val ok = result is ProfileConnector.ConnectResult.Success
+            val accepted = connectionAttempts.acceptCallback(
+                token = token,
+                selectedAddress = prefs.deviceAddress,
+                success = ok,
+                nowMs = SystemClock.elapsedRealtime(),
+            )
+            if (!accepted) {
+                Log.i(TAG, "Ignoring stale connection result for $address")
+            } else {
                 if (ok) prefs.connectionPolicyBlocked = false
                 overlay?.setResult(ok, message = result.message)
                 prefs.serviceStatus = result.message
@@ -570,6 +590,7 @@ class BleScanService : Service() {
     }
 
     private fun dismissPopup() {
+        connectionAttempts.cancelPending()
         overlay?.hide()
         overlay = null
     }
