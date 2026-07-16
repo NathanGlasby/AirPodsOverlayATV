@@ -14,9 +14,9 @@ import android.util.Log
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 
 /**
- * Connects an already-paired Bluetooth classic audio device (A2DP + HFP) using the
- * hidden connect()/setConnectionPolicy() APIs via reflection, the same approach
- * used by Bluetooth auto-connect apps.
+ * Connects an already-paired Bluetooth classic audio device using the hidden
+ * connect()/setConnectionPolicy() APIs. A2DP is the required TV audio path;
+ * HFP is used only when the Android TV build exposes a HEADSET profile.
  */
 @SuppressLint("MissingPermission")
 class ProfileConnector(private val context: Context) {
@@ -161,16 +161,25 @@ class ProfileConnector(private val context: Context) {
 
     fun isConnected(address: String?): Boolean {
         val device = bondedDevice(address) ?: return false
-        return try {
-            a2dp?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED ||
-                headset?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED
+        val connectedProfiles = try {
+            if (a2dp?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED) {
+                setOf(AudioProfilePlan.Profile.A2DP)
+            } else {
+                emptySet()
+            }
         } catch (e: Exception) {
-            false
+            emptySet()
         }
+        return AudioProfilePlan.isAudioConnected(connectedProfiles)
+    }
+
+    private fun availableProfiles(): Map<AudioProfilePlan.Profile, BluetoothProfile> = buildMap {
+        a2dp?.let { put(AudioProfilePlan.Profile.A2DP, it) }
+        headset?.let { put(AudioProfilePlan.Profile.HEADSET, it) }
     }
 
     /**
-     * Sets the per-device connection policy/priority for both audio profiles.
+     * Sets the per-device connection policy/priority for A2DP and, when present, HFP.
      * allowed=false makes the OS refuse auto-connections (incoming and outgoing)
      * for this device until re-allowed. Note: forbidding while connected causes
      * the OS to disconnect the device.
@@ -179,9 +188,12 @@ class ProfileConnector(private val context: Context) {
         if (!ensureHiddenApiAccess()) return false
         val device = bondedDevice(address) ?: return false
         val value = if (allowed) CONNECTION_POLICY_ALLOWED else 0
-        val proxies = listOf<BluetoothProfile>(a2dp ?: return false, headset ?: return false)
+        val available = availableProfiles()
+        val targets = AudioProfilePlan.operationTargets(available.keys)
+        if (targets.isEmpty()) return false
         var allSucceeded = true
-        for (proxy in proxies) {
+        for (profile in targets) {
+            val proxy = available.getValue(profile)
             var done = false
             try {
                 val m = proxy.javaClass.getMethod(
@@ -222,7 +234,8 @@ class ProfileConnector(private val context: Context) {
         lateinit var attempt: Runnable
         attempt = Runnable {
             when {
-                a2dp != null && headset != null -> callback(setAutoConnectAllowed(address, allowed))
+                AudioProfilePlan.isReady(availableProfiles().keys) ->
+                    callback(setAutoConnectAllowed(address, allowed))
                 android.os.SystemClock.elapsedRealtime() - startedAt >= timeoutMs -> callback(false)
                 else -> {
                     open()
@@ -314,8 +327,8 @@ class ProfileConnector(private val context: Context) {
     }
 
     /**
-     * Kicks off connection to both audio profiles; polls the connection state and
-     * reports success/failure on the main thread within [timeoutMs].
+     * Connects the A2DP audio path and attempts HFP as a best effort when available.
+     * Reports success only after A2DP reaches the connected state.
      */
     fun connect(
         address: String?,
@@ -332,7 +345,8 @@ class ProfileConnector(private val context: Context) {
         lateinit var awaitProfiles: Runnable
         awaitProfiles = Runnable {
             when {
-                a2dp != null && headset != null -> connectReady(device, address, timeoutMs, callback)
+                AudioProfilePlan.isReady(availableProfiles().keys) ->
+                    connectReady(device, address, timeoutMs, callback)
                 android.os.SystemClock.elapsedRealtime() - readyStartedAt >= profileReadyTimeoutMs ->
                     callback(ConnectResult.ProfilesUnavailable)
                 else -> {
@@ -350,13 +364,17 @@ class ProfileConnector(private val context: Context) {
         timeoutMs: Long,
         callback: (ConnectResult) -> Unit,
     ) {
+        val audioProxy = a2dp
+        if (audioProxy == null) {
+            callback(ConnectResult.ProfilesUnavailable)
+            return
+        }
         // A forbidden connection policy makes connect() a no-op, so allow it first.
         setAutoConnectAllowed(address, true)
-        var kicked = false
-        kicked = connectProfile(a2dp, device) || kicked
-        kicked = connectProfile(headset, device) || kicked
-        if (!kicked) {
-            Log.w(TAG, "No profile connect method worked")
+        val audioRequested = connectProfile(audioProxy, device)
+        headset?.let { connectProfile(it, device) }
+        if (!audioRequested) {
+            Log.w(TAG, "No A2DP connect method worked")
             main.post { callback(ConnectResult.RequestRejected) }
             return
         }
