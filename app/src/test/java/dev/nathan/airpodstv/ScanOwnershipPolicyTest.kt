@@ -15,6 +15,14 @@ class ScanOwnershipPolicyTest {
                 resumeAtMs = 0L,
             )
         )
+        assertFalse(
+            ScanOwnershipPolicy.canStartScan(
+                scannerActive = true,
+                aapTransportInFlight = false,
+                nowMs = 2_000L,
+                resumeAtMs = 0L,
+            )
+        )
     }
 
     @Test
@@ -52,6 +60,14 @@ class ScanOwnershipPolicyTest {
                 scannerActive = true,
                 aapTransportInFlight = true,
                 nowMs = 2_000L,
+                resumeAtMs = 1_000L,
+            )
+        )
+        assertFalse(
+            ScanOwnershipPolicy.canRunSilenceChecks(
+                scannerActive = true,
+                aapTransportInFlight = false,
+                nowMs = 999L,
                 resumeAtMs = 1_000L,
             )
         )
