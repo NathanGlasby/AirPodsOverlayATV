@@ -19,6 +19,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.os.Handler
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
@@ -59,6 +60,8 @@ class BleScanService : Service() {
 
         /** Back off briefly after Bluetooth is unavailable or Android rejects a scan. */
         private const val SCAN_RETRY_MS = 5_000L
+        private const val SCAN_MODE_HOLD_MS = 5_000L
+        private const val PREREQUISITE_CHECK_MS = 5_000L
 
         /** Give the controller a quiet interval between BLE scanning and Classic L2CAP. */
         private const val AAP_RADIO_SETTLE_MS = 750L
@@ -77,6 +80,25 @@ class BleScanService : Service() {
         private const val MODEL_AIRPODS_4_ANC = 0x1B20
 
         fun start(context: Context, action: String = ACTION_START): Boolean {
+            val scannerRequired = action != ACTION_RESTORE_POLICY
+            val plan = if (scannerRequired) {
+                ServicePrerequisites.forSdk(Build.VERSION.SDK_INT)
+            } else {
+                ServicePrerequisites.forPolicyRecovery(Build.VERSION.SDK_INT)
+            }
+            val prerequisites = AndroidServicePrerequisites.capture(
+                context = context,
+                requireOverlay = scannerRequired,
+                plan = plan,
+            )
+            val mayWaitForBluetooth = scannerRequired &&
+                prerequisites.readiness.blockers == setOf(ServiceBlocker.BLUETOOTH_DISABLED)
+            if (!prerequisites.readiness.canStart && !mayWaitForBluetooth) {
+                val message = prerequisites.failureMessage()
+                Log.w(TAG, "Service start rejected: $message")
+                Prefs(context).serviceStatus = message
+                return false
+            }
             return try {
                 val i = Intent(context, BleScanService::class.java).setAction(action)
                 context.startForegroundService(i)
@@ -96,7 +118,23 @@ class BleScanService : Service() {
             val i = Intent(context, BleScanService::class.java)
                 .setAction(ACTION_DEVICE_CHANGED)
                 .putExtra(EXTRA_OLD_DEVICE_ADDRESS, oldAddress)
-            context.startForegroundService(i)
+            val prerequisites = AndroidServicePrerequisites.capture(
+                context,
+                requireOverlay = true,
+            )
+            val mayWaitForBluetooth =
+                prerequisites.readiness.blockers == setOf(ServiceBlocker.BLUETOOTH_DISABLED)
+            if (!prerequisites.readiness.canStart && !mayWaitForBluetooth) {
+                Prefs(context).serviceStatus = prerequisites.failureMessage()
+                return
+            }
+            try {
+                context.startForegroundService(i)
+            } catch (e: Exception) {
+                Log.e(TAG, "Unable to deliver selected-device change", e)
+                Prefs(context).serviceStatus =
+                    "Selected device change failed: ${e.javaClass.simpleName}"
+            }
         }
     }
 
@@ -117,6 +155,10 @@ class BleScanService : Service() {
     private var irkBytes: ByteArray? = null
     private var identityKeyVerified = false
     private var nextScanRetryAt = 0L
+    private var activeScanMode: BleScanModePolicy.Mode? = null
+    private var nextScanModeChangeAt = 0L
+    private var nextPrerequisiteCheckAt = 0L
+    private var foregroundPromotionSucceeded = false
     private var aap: AapClient? = null
     private var aapDeviceAddress: String? = null
     private var aapGeneration = 0L
@@ -198,6 +240,10 @@ class BleScanService : Service() {
     private val ticker = object : Runnable {
         override fun run() {
             val now = SystemClock.elapsedRealtime()
+            if (prefs.enabled && now >= nextPrerequisiteCheckAt) {
+                nextPrerequisiteCheckAt = now + PREREQUISITE_CHECK_MS
+                if (stopIfPrerequisitesWereRevoked()) return
+            }
             reconcileAapSession(now)
             val silenceChecksAllowed = !aapTransportInFlight && scanner != null &&
                 now >= silenceChecksResumeAt
@@ -221,7 +267,16 @@ class BleScanService : Service() {
             }
             // Long silence: next case-open is a fresh session.
             if (silenceChecksAllowed) popupSession.clearAfterLongSilence(now, 60_000L)
-            if (scanner == null && now >= nextScanRetryAt) startScan()
+            if (scanner != null && !aapTransportInFlight && now >= nextScanModeChangeAt) {
+                val desiredMode = desiredScanMode()
+                if (desiredMode != activeScanMode) {
+                    Log.i(TAG, "Changing BLE scan mode to $desiredMode")
+                    stopScan()
+                } else {
+                    nextScanModeChangeAt = now + SCAN_MODE_HOLD_MS
+                }
+            }
+            if (prefs.enabled && scanner == null && now >= nextScanRetryAt) startScan()
             main.postDelayed(this, 1000L)
         }
     }
@@ -265,11 +320,13 @@ class BleScanService : Service() {
         override fun onScanFailed(errorCode: Int) {
             Log.e(TAG, "Scan failed: $errorCode")
             scanner = null
+            activeScanMode = null
             // Scanner failure is not case silence; discard the stale lid-close latch.
             lidClosePolicy.reset()
             podsOutsideCaseStreak = 0
             prefs.serviceStatus = "BLE scan failed (code $errorCode); retrying"
             nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
+            stopIfPrerequisitesWereRevoked()
         }
     }
 
@@ -283,7 +340,15 @@ class BleScanService : Service() {
         connector = ProfileConnector(this)
         connector.open()
         prefs.serviceStatus = "Scanner starting"
-        startForeground(NOTIF_ID, buildNotification())
+        try {
+            startForeground(NOTIF_ID, buildNotification())
+            foregroundPromotionSucceeded = true
+        } catch (e: Exception) {
+            prefs.serviceStatus = "Foreground service could not start: ${e.javaClass.simpleName}"
+            Log.e(TAG, "startForeground failed", e)
+            stopSelf()
+            return
+        }
         registerReceiver(aclReceiver, IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
@@ -294,6 +359,24 @@ class BleScanService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!foregroundPromotionSucceeded) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        val recoveryAction = intent?.action == ACTION_RESTORE_POLICY
+        if (prefs.enabled && !recoveryAction) {
+            val prerequisites = AndroidServicePrerequisites.capture(this, requireOverlay = true)
+            if (!prerequisites.readiness.canStart &&
+                prerequisites.readiness.blockers != setOf(ServiceBlocker.BLUETOOTH_DISABLED)
+            ) {
+                stopForMissingPrerequisites(prerequisites)
+                return START_NOT_STICKY
+            }
+        } else if (!prefs.enabled && !recoveryAction) {
+            prefs.serviceStatus = "Scanner start ignored because it is disabled"
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 stopSelf()
@@ -335,12 +418,28 @@ class BleScanService : Service() {
             ACTION_RESTORE_POLICY -> {
                 prefs.blockAutoConnect = false
                 applyConnectionPolicy()
-                if (!prefs.enabled) main.postDelayed({ stopSelf() }, 4_000L)
+                if (!prefs.enabled) main.postDelayed({ stopSelf(startId) }, 4_000L)
             }
         }
         refreshIrk()
-        startScan()
-        return START_STICKY
+        if (prefs.enabled) {
+            val prerequisites = AndroidServicePrerequisites.capture(this, requireOverlay = true)
+            if (prerequisites.readiness.canStart) {
+                startScan()
+                return START_STICKY
+            }
+            if (prerequisites.readiness.blockers == setOf(ServiceBlocker.BLUETOOTH_DISABLED)) {
+                startScan()
+                return START_STICKY
+            }
+            if (recoveryAction) {
+                prefs.enabled = false
+                main.postDelayed({ stopSelf(startId) }, 4_000L)
+                return START_NOT_STICKY
+            }
+            stopForMissingPrerequisites(prerequisites)
+        }
+        return START_NOT_STICKY
     }
 
     private fun refreshIrk() {
@@ -391,28 +490,46 @@ class BleScanService : Service() {
         if (scanner != null || aapTransportInFlight ||
             SystemClock.elapsedRealtime() < scanResumeAt
         ) return
-        val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (adapter == null || !adapter.isEnabled) {
-            Log.w(TAG, "Bluetooth is off; cannot scan")
-            nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
+        val prerequisites = AndroidServicePrerequisites.capture(this, requireOverlay = true)
+        if (!prerequisites.readiness.canStart) {
+            if (prerequisites.readiness.blockers == setOf(ServiceBlocker.BLUETOOTH_DISABLED)) {
+                prefs.serviceStatus = prerequisites.failureMessage()
+                nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
+            } else {
+                stopForMissingPrerequisites(prerequisites)
+            }
             return
         }
-        val bleScanner = adapter.bluetoothLeScanner
-        if (bleScanner == null) {
-            Log.w(TAG, "BLE scanner unavailable; will retry")
-            nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
-            return
-        }
-        scanner = bleScanner
-        // Match ANY Apple manufacturer frame; we sort out message types in the callback.
-        val filter = ScanFilter.Builder()
-            .setManufacturerData(BeaconParser.APPLE_COMPANY_ID, byteArrayOf())
-            .build()
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
         try {
+            val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            if (adapter == null || !adapter.isEnabled) {
+                Log.w(TAG, "Bluetooth is off; cannot scan")
+                nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
+                return
+            }
+            val bleScanner = adapter.bluetoothLeScanner
+            if (bleScanner == null) {
+                Log.w(TAG, "BLE scanner unavailable; will retry")
+                nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
+                return
+            }
+            scanner = bleScanner
+            val selectedMode = desiredScanMode()
+            // Match ANY Apple manufacturer frame; we sort out message types in the callback.
+            val filter = ScanFilter.Builder()
+                .setManufacturerData(BeaconParser.APPLE_COMPANY_ID, byteArrayOf())
+                .build()
+            val settings = ScanSettings.Builder()
+                .setScanMode(
+                    when (selectedMode) {
+                        BleScanModePolicy.Mode.BALANCED -> ScanSettings.SCAN_MODE_BALANCED
+                        BleScanModePolicy.Mode.LOW_LATENCY -> ScanSettings.SCAN_MODE_LOW_LATENCY
+                    }
+                )
+                .build()
             bleScanner.startScan(listOf(filter), settings, scanCallback)
+            activeScanMode = selectedMode
+            nextScanModeChangeAt = SystemClock.elapsedRealtime() + SCAN_MODE_HOLD_MS
             nextScanRetryAt = 0L
             // A recovered scanner needs a fresh observation window before absence is
             // meaningful. Otherwise an old armed case sample can cause a false disconnect.
@@ -422,21 +539,68 @@ class BleScanService : Service() {
             )
             prefs.serviceStatus = "BLE scan is active"
             Log.i(TAG, "BLE scan started")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "startScan lost permission", e)
+            val current = AndroidServicePrerequisites.capture(this, requireOverlay = true)
+            if (current.readiness.canStart) {
+                prefs.enabled = false
+                prefs.serviceStatus = "Android denied Bluetooth scanning"
+                stopSelf()
+            } else {
+                stopForMissingPrerequisites(current)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "startScan failed", e)
             scanner = null
+            activeScanMode = null
             prefs.serviceStatus = "BLE scan could not start: ${e.javaClass.simpleName}"
             nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
         }
     }
 
+    private fun stopIfPrerequisitesWereRevoked(): Boolean {
+        val prerequisites = AndroidServicePrerequisites.capture(this, requireOverlay = true)
+        if (prerequisites.readiness.blockers == setOf(ServiceBlocker.BLUETOOTH_DISABLED)) {
+            // Turning the adapter off invalidates the platform registration without a
+            // guaranteed failure callback. Clear our handle so the retry can register again.
+            if (scanner != null) stopScan()
+            prefs.serviceStatus = prerequisites.failureMessage()
+            nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
+            return false
+        }
+        val permanentBlocker = prerequisites.readiness.blockers.any {
+            it != ServiceBlocker.BLUETOOTH_DISABLED
+        }
+        if (!prerequisites.readiness.canStart && permanentBlocker) {
+            stopForMissingPrerequisites(prerequisites)
+            return true
+        }
+        return false
+    }
+
+    private fun stopForMissingPrerequisites(
+        prerequisites: AndroidServicePrerequisites.Snapshot,
+    ) {
+        prefs.enabled = false
+        prefs.serviceStatus = prerequisites.failureMessage()
+        Log.w(TAG, "Stopping scanner: ${prerequisites.failureMessage()}")
+        stopSelf()
+    }
+
     private fun stopScan() {
         try {
             scanner?.stopScan(scanCallback)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "stopScan failed", e)
         }
         scanner = null
+        activeScanMode = null
     }
+
+    private fun desiredScanMode(): BleScanModePolicy.Mode = BleScanModePolicy.desiredMode(
+        selectedDeviceConnected = connector.isConnected(prefs.deviceAddress),
+        popupVisible = overlay?.isShowing == true,
+    )
 
     private fun isConnectedReactionBeacon(
         beacon: BeaconParser.Beacon,
@@ -728,7 +892,9 @@ class BleScanService : Service() {
             scanResumeAt = now + AAP_SCAN_RESUME_DELAY_MS
             silenceChecksResumeAt = scanResumeAt + BEACON_GONE_MS
             main.postDelayed({
-                if (isRunning && !aapTransportInFlight && scanner == null) startScan()
+                if (prefs.enabled && isRunning && !aapTransportInFlight && scanner == null) {
+                    startScan()
+                }
             }, AAP_SCAN_RESUME_DELAY_MS)
         }
     }

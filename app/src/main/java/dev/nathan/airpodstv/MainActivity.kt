@@ -155,7 +155,11 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
             if (checked) {
                 if (readyToRun()) {
                     prefs.enabled = true
-                    BleScanService.start(this)
+                    if (!BleScanService.start(this)) {
+                        prefs.enabled = false
+                        enabledSwitch.isChecked = false
+                        toast(prefs.serviceStatus ?: "The scanner could not start")
+                    }
                 } else {
                     enabledSwitch.isChecked = false
                 }
@@ -250,20 +254,8 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
     // ---- permissions ----
 
     private fun neededPermissions(): List<String> {
-        val need = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 31) {
-            need += Manifest.permission.BLUETOOTH_SCAN
-            need += Manifest.permission.BLUETOOTH_CONNECT
-        } else {
-            need += Manifest.permission.ACCESS_FINE_LOCATION
-            if (Build.VERSION.SDK_INT >= 29) {
-                need += Manifest.permission.ACCESS_BACKGROUND_LOCATION
-            }
-        }
-        if (Build.VERSION.SDK_INT >= 33) {
-            need += Manifest.permission.POST_NOTIFICATIONS
-        }
-        return need
+        val plan = ServicePrerequisites.forSdk(Build.VERSION.SDK_INT)
+        return plan.requestable.map { AndroidServicePrerequisites.permissionName(it) }
     }
 
     private fun missingPermissions(): List<String> =
@@ -272,7 +264,6 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         }
 
     private fun locationServicesReady(): Boolean {
-        if (Build.VERSION.SDK_INT >= 31) return true
         val manager = getSystemService(LOCATION_SERVICE) as LocationManager
         return manager.isLocationEnabled
     }
@@ -353,22 +344,9 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
     }
 
     private fun readyToRun(): Boolean {
-        val missing = missingPermissions()
-        if (missing.isNotEmpty()) {
-            val message = if (Manifest.permission.ACCESS_BACKGROUND_LOCATION in missing) {
-                "Allow location all the time so the scanner works over other apps"
-            } else {
-                "Grant Bluetooth/location permissions first"
-            }
-            toast(message)
-            return false
-        }
-        if (!Settings.canDrawOverlays(this)) {
-            toast("Grant the overlay permission first")
-            return false
-        }
-        if (!locationServicesReady()) {
-            toast("Turn on Android Location so the scanner can receive BLE beacons")
+        val snapshot = AndroidServicePrerequisites.capture(this, requireOverlay = true)
+        if (!snapshot.readiness.canStart) {
+            toast(snapshot.failureMessage())
             return false
         }
         return true
@@ -378,12 +356,18 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
 
     private fun refreshUi() {
         refreshingUi = true
+        val snapshot = AndroidServicePrerequisites.capture(this, requireOverlay = false)
         val missing = missingPermissions()
         val locationOk = locationServicesReady()
         permStatus.text = when {
-            missing.isNotEmpty() -> "✗ Missing: " + missing.joinToString(", ") { it.substringAfterLast('.') }
-            !locationOk -> "✗ Android Location is off (required for BLE scanning on Android 11 and older)"
-            else -> "✓ Bluetooth & background scan permissions granted"
+            snapshot.missingRequired.isNotEmpty() ->
+                "✗ Missing required: " + snapshot.missingRequired.joinToString(", ") {
+                    AndroidServicePrerequisites.capabilityLabel(it)
+                }
+            !snapshot.readiness.canStart -> "✗ ${snapshot.failureMessage()}"
+            snapshot.missingOptional.isNotEmpty() ->
+                "✓ Bluetooth and location are ready. Notifications are optional and currently off"
+            else -> "✓ Bluetooth, location, and background scan permissions granted"
         }
         grantPermsBtn.visibility = if (missing.isEmpty() && locationOk) View.GONE else View.VISIBLE
 
