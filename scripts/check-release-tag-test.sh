@@ -18,6 +18,13 @@ fi
 
 bash "$checker" "$expected_tag" "$build_file" >/dev/null
 
+usage_status=0
+bash "$checker" >/dev/null 2>&1 || usage_status=$?
+if (( usage_status != 2 )); then
+  echo "Calling the checker without a tag returned $usage_status instead of 2." >&2
+  exit 1
+fi
+
 if bash "$checker" "${expected_tag}-wrong" "$build_file" >/dev/null 2>&1; then
   echo "A mismatched tag was accepted." >&2
   exit 1
