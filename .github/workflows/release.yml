@@ -11,44 +11,101 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    env:
-      AIRPODS_KEYSTORE_PATH: ${{ github.workspace }}/release.jks
-      AIRPODS_KEYSTORE_PASSWORD: ${{ secrets.AIRPODS_KEYSTORE_PASSWORD }}
-      AIRPODS_KEY_ALIAS: ${{ secrets.AIRPODS_KEY_ALIAS }}
-      AIRPODS_KEY_PASSWORD: ${{ secrets.AIRPODS_KEY_PASSWORD }}
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-java@v4
+      - name: Require a commit from main
+        shell: bash
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "The workflow commit is not part of origin/main." >&2
+            exit 1
+          fi
+      - name: Check the release tag script
+        run: bash scripts/check-release-tag-test.sh
+      - name: Check the release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            bash scripts/check-release-tag.sh "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/check-release-tag.sh --metadata >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
       - name: Restore release keystore
         env:
           KEYSTORE_B64: ${{ secrets.AIRPODS_KEYSTORE_B64 }}
         run: printf '%s' "$KEYSTORE_B64" | base64 --decode > release.jks
       - name: Test, lint, and build signed APK
-        run: ./gradlew --no-daemon --max-workers=2 :app:verifyReleaseSigning testDebugUnitTest lintRelease assembleRelease
-      - name: Verify signature and checksum
+        env:
+          AIRPODS_KEYSTORE_PATH: ${{ github.workspace }}/release.jks
+          AIRPODS_KEYSTORE_PASSWORD: ${{ secrets.AIRPODS_KEYSTORE_PASSWORD }}
+          AIRPODS_KEY_ALIAS: ${{ secrets.AIRPODS_KEY_ALIAS }}
+          AIRPODS_KEY_PASSWORD: ${{ secrets.AIRPODS_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon --max-workers=2 --dependency-verification=strict :app:verifyReleaseSigning testDebugUnitTest lintRelease assembleRelease
+      - name: Package and verify the final APK
+        id: package
+        shell: bash
         run: |
-          APK=$(find app/build/outputs/apk/release -name '*.apk' -type f -print -quit)
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          test -n "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "$APK"
-          sha256sum "$APK" | tee release-checksums.txt
-          cp "$APK" "AirPodsOverlay-${GITHUB_REF_NAME:-manual}.apk"
-      - uses: actions/upload-artifact@v4
+          mapfile -t apks < <(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -type f -print)
+          if (( ${#apks[@]} != 1 )); then
+            echo "Expected one release APK, found ${#apks[@]}." >&2
+            printf '  %s\n' "${apks[@]}" >&2
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            release_label="$GITHUB_REF_NAME"
+            release_ref="$GITHUB_REF_NAME"
+          else
+            release_label="manual-v${{ steps.version.outputs.version_name }}-${GITHUB_SHA::7}"
+            release_ref="manual"
+          fi
+
+          final_apk="AirPodsOverlay-${release_label}.apk"
+          cp -- "${apks[0]}" "$final_apk"
+
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          if [[ -z "$apksigner" ]]; then
+            echo "Android apksigner was not found." >&2
+            exit 1
+          fi
+          "$apksigner" verify --verbose --print-certs "$final_apk"
+
+          apk_sha256=$(sha256sum "$final_apk" | awk '{print $1}')
+          printf '%s  %s\n' "$apk_sha256" "$final_apk" > release-checksums.txt
+          {
+            printf 'release_ref=%s\n' "$release_ref"
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'version_name=%s\n' "${{ steps.version.outputs.version_name }}"
+            printf 'version_code=%s\n' "${{ steps.version.outputs.version_code }}"
+            printf 'apk_file=%s\n' "$final_apk"
+            printf 'apk_sha256=%s\n' "$apk_sha256"
+          } > release-metadata.txt
+          printf 'apk=%s\n' "$final_apk" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: signed-release
           path: |
-            AirPodsOverlay-*.apk
+            ${{ steps.package.outputs.apk }}
             release-checksums.txt
+            release-metadata.txt
       - name: Publish tagged GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_APK: ${{ steps.package.outputs.apk }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" AirPodsOverlay-*.apk release-checksums.txt --clobber
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" \
+            --title "AirPods Overlay $GITHUB_REF_NAME" \
+            --notes "Signed APK and verification files for $GITHUB_REF_NAME."
+          gh release upload "$GITHUB_REF_NAME" "$RELEASE_APK" release-checksums.txt release-metadata.txt --clobber
