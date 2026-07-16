@@ -116,6 +116,7 @@ class BleScanService : Service() {
     private var connectRequestedAt = 0L
     private var irkBytes: ByteArray? = null
     private var identityKeyVerified = false
+    private var identitySuppressionLogged = false
     private var nextScanRetryAt = 0L
     private var aap: AapClient? = null
     private var aapDeviceAddress: String? = null
@@ -252,7 +253,21 @@ class BleScanService : Service() {
                 }
                 if (decision.passes) latestAcceptedBeacon = beacon
                 BeaconBus.publish(beacon, decision.passes, decision.reason.label)
-                if (isConnectedReactionBeacon(beacon, decision)) handleConnectedBeacon(beacon)
+                val selectedDeviceConnected = connector.isConnected(prefs.deviceAddress)
+                if (selectedDeviceConnected && !identityKeyVerified) {
+                    if (!identitySuppressionLogged) {
+                        Log.i(TAG, "Connected reactions suppressed until identity is verified")
+                        identitySuppressionLogged = true
+                    }
+                } else {
+                    identitySuppressionLogged = false
+                }
+                val mayDriveConnectedReaction = ConnectedReactionPolicy.allowsBleReaction(
+                    selectedDeviceConnected = selectedDeviceConnected,
+                    identityKeyVerified = identityKeyVerified,
+                    identityMatched = decision.identityMatched,
+                )
+                if (mayDriveConnectedReaction) handleConnectedBeacon(beacon)
                 if (decision.passes) handlePopupBeacon(beacon)
                 return
             }
@@ -445,20 +460,6 @@ class BleScanService : Service() {
         } catch (_: Exception) {
         }
         scanner = null
-    }
-
-    private fun isConnectedReactionBeacon(
-        beacon: BeaconParser.Beacon,
-        popupDecision: BeaconGate.Decision,
-    ): Boolean {
-        if (!connector.isConnected(prefs.deviceAddress)) return false
-        val key = irkBytes
-        if (identityKeyVerified && key != null) return RpaVerifier.verify(beacon.address, key)
-
-        // AirPods rotate and may interleave case/pod BLE addresses. Before the IRK is
-        // available, the same model/proximity gate shown by the green debug marker owns
-        // the already-debounced reaction path; a hidden address lock made green frames inert.
-        return popupDecision.passes
     }
 
     private fun handleConnectedBeacon(beacon: BeaconParser.Beacon) {
