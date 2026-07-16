@@ -279,9 +279,8 @@ class ProfileConnector(private val context: Context) {
         lateinit var awaitProfiles: Runnable
         awaitProfiles = Runnable {
             when {
-                // A2DP is the TV audio path and must be observable before we declare the
-                // device disconnected. HEADSET is optional on A2DP-only Android TV builds.
-                a2dp != null -> disconnectReady(address, timeoutMs, callback)
+                AudioProfilePlan.isReady(availableProfiles().keys) ->
+                    disconnectReady(address, timeoutMs, callback)
                 android.os.SystemClock.elapsedRealtime() - readyStartedAt >= profileReadyTimeoutMs ->
                     callback(DisconnectResult.ProfilesUnavailable)
                 else -> {
