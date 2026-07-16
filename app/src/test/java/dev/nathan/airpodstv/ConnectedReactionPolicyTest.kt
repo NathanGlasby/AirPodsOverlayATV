@@ -1,10 +1,31 @@
 package dev.nathan.airpodstv
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectedReactionPolicyTest {
+    @Test
+    fun everyInputCombinationFollowsTheStrictIdentityRule() {
+        val values = listOf(false, true)
+        for (connected in values) {
+            for (verified in values) {
+                for (matched in values) {
+                    assertEquals(
+                        "connected=$connected verified=$verified matched=$matched",
+                        connected && verified && matched,
+                        ConnectedReactionPolicy.allowsBleReaction(
+                            selectedDeviceConnected = connected,
+                            identityKeyVerified = verified,
+                            identityMatched = matched,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
     @Test
     fun proximityMatchWithoutVerifiedIdentityIsDenied() {
         assertFalse(

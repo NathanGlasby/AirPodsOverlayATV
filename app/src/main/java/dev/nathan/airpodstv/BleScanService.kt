@@ -116,6 +116,7 @@ class BleScanService : Service() {
     private var connectRequestedAt = 0L
     private var irkBytes: ByteArray? = null
     private var identityKeyVerified = false
+    private var identitySuppressionLogged = false
     private var nextScanRetryAt = 0L
     private var aap: AapClient? = null
     private var aapDeviceAddress: String? = null
@@ -248,8 +249,17 @@ class BleScanService : Service() {
                 }
                 if (decision.passes) latestAcceptedBeacon = beacon
                 BeaconBus.publish(beacon, decision.passes, decision.reason.label)
+                val selectedDeviceConnected = connector.isConnected(prefs.deviceAddress)
+                if (selectedDeviceConnected && !identityKeyVerified) {
+                    if (!identitySuppressionLogged) {
+                        Log.i(TAG, "Connected reactions suppressed until identity is verified")
+                        identitySuppressionLogged = true
+                    }
+                } else {
+                    identitySuppressionLogged = false
+                }
                 val mayDriveConnectedReaction = ConnectedReactionPolicy.allowsBleReaction(
-                    selectedDeviceConnected = connector.isConnected(prefs.deviceAddress),
+                    selectedDeviceConnected = selectedDeviceConnected,
                     identityKeyVerified = identityKeyVerified,
                     identityMatched = decision.identityMatched,
                 )

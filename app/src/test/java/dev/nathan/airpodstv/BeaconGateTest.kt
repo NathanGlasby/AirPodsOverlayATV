@@ -59,6 +59,20 @@ class BeaconGateTest {
     }
 
     @Test
+    fun modelFilterDoesNotHideASelectedDeviceIdentityMatch() {
+        val result = evaluate(
+            beacon = beacon(model = 0x1420),
+            modelFilter = true,
+            irk = validIrk,
+            identityKeyVerified = true,
+        )
+
+        assertFalse(result.passes)
+        assertEquals(BeaconGate.Reason.WRONG_MODEL, result.reason)
+        assertTrue(result.identityMatched)
+    }
+
+    @Test
     fun strictIdentityRejectsUntilKeyIsVerified() {
         val result = evaluate(
             identityFilter = true,

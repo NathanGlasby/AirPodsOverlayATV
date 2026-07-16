@@ -28,13 +28,15 @@ object BeaconGate {
         identityKeyVerified: Boolean,
         rssiThreshold: Int,
     ): Decision {
+        // Identity belongs to the selected device, so popup-only filters must not hide it
+        // from connected-device reactions.
+        val identityMatches = irk?.let { RpaVerifier.verify(beacon.address, it) } == true
+
         if (modelFilter && beacon.model != requiredModel) {
-            return Decision(false, Reason.WRONG_MODEL)
+            return Decision(false, Reason.WRONG_MODEL, identityMatched = identityMatches)
         }
 
         // Validate a stored key even while the strict filter is off, so enabling it later is safe.
-        val identityMatches = irk?.let { RpaVerifier.verify(beacon.address, it) } == true
-
         if (identityFilter) {
             if (irk == null || !identityKeyVerified) {
                 return Decision(
