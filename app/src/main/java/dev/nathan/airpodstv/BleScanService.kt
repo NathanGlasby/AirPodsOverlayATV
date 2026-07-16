@@ -248,7 +248,12 @@ class BleScanService : Service() {
                 }
                 if (decision.passes) latestAcceptedBeacon = beacon
                 BeaconBus.publish(beacon, decision.passes, decision.reason.label)
-                if (isConnectedReactionBeacon(beacon, decision)) handleConnectedBeacon(beacon)
+                val mayDriveConnectedReaction = ConnectedReactionPolicy.allowsBleReaction(
+                    selectedDeviceConnected = connector.isConnected(prefs.deviceAddress),
+                    identityKeyVerified = identityKeyVerified,
+                    identityMatched = decision.identityMatched,
+                )
+                if (mayDriveConnectedReaction) handleConnectedBeacon(beacon)
                 if (decision.passes) handlePopupBeacon(beacon)
                 return
             }
@@ -436,20 +441,6 @@ class BleScanService : Service() {
         } catch (_: Exception) {
         }
         scanner = null
-    }
-
-    private fun isConnectedReactionBeacon(
-        beacon: BeaconParser.Beacon,
-        popupDecision: BeaconGate.Decision,
-    ): Boolean {
-        if (!connector.isConnected(prefs.deviceAddress)) return false
-        val key = irkBytes
-        if (identityKeyVerified && key != null) return RpaVerifier.verify(beacon.address, key)
-
-        // AirPods rotate and may interleave case/pod BLE addresses. Before the IRK is
-        // available, the same model/proximity gate shown by the green debug marker owns
-        // the already-debounced reaction path; a hidden address lock made green frames inert.
-        return popupDecision.passes
     }
 
     private fun handleConnectedBeacon(beacon: BeaconParser.Beacon) {
