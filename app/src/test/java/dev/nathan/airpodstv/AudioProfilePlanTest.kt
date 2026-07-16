@@ -84,4 +84,38 @@ class AudioProfilePlanTest {
             )
         )
     }
+
+    @Test
+    fun disconnectWaitsForEveryTargetedProfile() {
+        val targets = setOf(
+            AudioProfilePlan.Profile.A2DP,
+            AudioProfilePlan.Profile.HEADSET,
+        )
+
+        assertFalse(
+            AudioProfilePlan.isDisconnectComplete(
+                targets = targets,
+                connected = setOf(AudioProfilePlan.Profile.HEADSET),
+                failedQueries = emptySet(),
+            )
+        )
+        assertTrue(
+            AudioProfilePlan.isDisconnectComplete(
+                targets = targets,
+                connected = emptySet(),
+                failedQueries = emptySet(),
+            )
+        )
+    }
+
+    @Test
+    fun failedConnectionStateQueryCannotReportDisconnectSuccess() {
+        assertFalse(
+            AudioProfilePlan.isDisconnectComplete(
+                targets = setOf(AudioProfilePlan.Profile.A2DP),
+                connected = emptySet(),
+                failedQueries = setOf(AudioProfilePlan.Profile.A2DP),
+            )
+        )
+    }
 }

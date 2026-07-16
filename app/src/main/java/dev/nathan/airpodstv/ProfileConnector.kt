@@ -87,6 +87,11 @@ class ProfileConnector(private val context: Context) {
     private var a2dpRequested = false
     private var headsetRequested = false
 
+    private data class ConnectionSnapshot(
+        val connected: Set<AudioProfilePlan.Profile>,
+        val failedQueries: Set<AudioProfilePlan.Profile>,
+    )
+
     fun open() {
         val ad = adapter
         if (ad == null) {
@@ -161,21 +166,38 @@ class ProfileConnector(private val context: Context) {
 
     fun isConnected(address: String?): Boolean {
         val device = bondedDevice(address) ?: return false
-        val connectedProfiles = try {
-            if (a2dp?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED) {
-                setOf(AudioProfilePlan.Profile.A2DP)
-            } else {
-                emptySet()
-            }
-        } catch (e: Exception) {
-            emptySet()
-        }
-        return AudioProfilePlan.isAudioConnected(connectedProfiles)
+        val snapshot = connectionSnapshot(device, availableProfiles().keys)
+        return AudioProfilePlan.isAudioConnected(snapshot.connected)
     }
 
     private fun availableProfiles(): Map<AudioProfilePlan.Profile, BluetoothProfile> = buildMap {
         a2dp?.let { put(AudioProfilePlan.Profile.A2DP, it) }
         headset?.let { put(AudioProfilePlan.Profile.HEADSET, it) }
+    }
+
+    private fun connectionSnapshot(
+        device: BluetoothDevice,
+        targets: Set<AudioProfilePlan.Profile>,
+    ): ConnectionSnapshot {
+        val available = availableProfiles()
+        val connected = mutableSetOf<AudioProfilePlan.Profile>()
+        val failed = mutableSetOf<AudioProfilePlan.Profile>()
+        for (profile in targets) {
+            val proxy = available[profile]
+            if (proxy == null) {
+                failed += profile
+                continue
+            }
+            try {
+                if (proxy.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED) {
+                    connected += profile
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "$profile getConnectionState failed", e)
+                failed += profile
+            }
+        }
+        return ConnectionSnapshot(connected, failed)
     }
 
     /**
@@ -252,12 +274,22 @@ class ProfileConnector(private val context: Context) {
         main.post(attempt)
     }
 
-    /** Disconnects both audio profiles via the hidden disconnect(BluetoothDevice). */
+    /** Disconnects every currently available TV audio profile. */
     fun disconnect(address: String?): Boolean {
         if (!ensureHiddenApiAccess()) return false
         val device = bondedDevice(address) ?: return false
+        val targets = AudioProfilePlan.operationTargets(availableProfiles().keys).toSet()
+        return disconnectTargets(device, targets)
+    }
+
+    private fun disconnectTargets(
+        device: BluetoothDevice,
+        targets: Set<AudioProfilePlan.Profile>,
+    ): Boolean {
+        val available = availableProfiles()
         var requested = false
-        for (proxy in listOfNotNull<BluetoothProfile>(a2dp, headset)) {
+        for (profile in targets) {
+            val proxy = available[profile] ?: continue
             try {
                 val m = proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
                 m.isAccessible = true
@@ -284,10 +316,15 @@ class ProfileConnector(private val context: Context) {
         val readyStartedAt = android.os.SystemClock.elapsedRealtime()
         lateinit var awaitProfiles: Runnable
         awaitProfiles = Runnable {
+            val elapsed = android.os.SystemClock.elapsedRealtime() - readyStartedAt
+            val available = availableProfiles()
             when {
-                AudioProfilePlan.isReady(availableProfiles().keys) ->
-                    disconnectReady(address, timeoutMs, callback)
-                android.os.SystemClock.elapsedRealtime() - readyStartedAt >= profileReadyTimeoutMs ->
+                AudioProfilePlan.canApplyPolicy(
+                    available = available.keys,
+                    optionalProfilePending = headsetRequested,
+                    waitExpired = elapsed >= profileReadyTimeoutMs,
+                ) -> disconnectReady(address, available.keys, timeoutMs, callback)
+                elapsed >= profileReadyTimeoutMs ->
                     callback(DisconnectResult.ProfilesUnavailable)
                 else -> {
                     open()
@@ -300,14 +337,27 @@ class ProfileConnector(private val context: Context) {
 
     private fun disconnectReady(
         address: String?,
+        available: Set<AudioProfilePlan.Profile>,
         timeoutMs: Long,
         callback: (DisconnectResult) -> Unit,
     ) {
-        if (!isConnected(address)) {
+        val device = bondedDevice(address)
+        if (device == null) {
+            callback(DisconnectResult.DeviceNotPaired)
+            return
+        }
+        val targets = AudioProfilePlan.operationTargets(available).toSet()
+        val initial = connectionSnapshot(device, targets)
+        if (AudioProfilePlan.isDisconnectComplete(
+                targets,
+                initial.connected,
+                initial.failedQueries,
+            )
+        ) {
             callback(DisconnectResult.Success)
             return
         }
-        if (!disconnect(address)) {
+        if (!disconnectTargets(device, targets)) {
             callback(DisconnectResult.RequestRejected)
             return
         }
@@ -317,12 +367,17 @@ class ProfileConnector(private val context: Context) {
         lateinit var poll: Runnable
         poll = Runnable {
             val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
+            val snapshot = connectionSnapshot(device, targets)
             when {
-                !isConnected(address) -> callback(DisconnectResult.Success)
+                AudioProfilePlan.isDisconnectComplete(
+                    targets,
+                    snapshot.connected,
+                    snapshot.failedQueries,
+                ) -> callback(DisconnectResult.Success)
                 elapsed >= timeoutMs -> callback(DisconnectResult.TimedOut)
                 !retried && elapsed >= timeoutMs / 2 -> {
                     retried = true
-                    disconnect(address)
+                    disconnectTargets(device, targets)
                     main.postDelayed(poll, 250L)
                 }
                 else -> main.postDelayed(poll, 250L)

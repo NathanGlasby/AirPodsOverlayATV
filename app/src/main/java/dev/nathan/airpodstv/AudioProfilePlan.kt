@@ -18,4 +18,12 @@ internal object AudioProfilePlan {
     ): Boolean = isReady(available) && (!optionalProfilePending || waitExpired)
 
     fun isAudioConnected(connected: Set<Profile>): Boolean = Profile.A2DP in connected
+
+    fun isDisconnectComplete(
+        targets: Set<Profile>,
+        connected: Set<Profile>,
+        failedQueries: Set<Profile>,
+    ): Boolean = targets.isNotEmpty() &&
+        targets.none { it in connected } &&
+        targets.none { it in failedQueries }
 }
