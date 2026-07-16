@@ -233,10 +233,16 @@ class ProfileConnector(private val context: Context) {
         val startedAt = android.os.SystemClock.elapsedRealtime()
         lateinit var attempt: Runnable
         attempt = Runnable {
+            val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
+            val available = availableProfiles()
             when {
-                AudioProfilePlan.isReady(availableProfiles().keys) ->
+                AudioProfilePlan.canApplyPolicy(
+                    available = available.keys,
+                    optionalProfilePending = headsetRequested,
+                    waitExpired = elapsed >= timeoutMs,
+                ) ->
                     callback(setAutoConnectAllowed(address, allowed))
-                android.os.SystemClock.elapsedRealtime() - startedAt >= timeoutMs -> callback(false)
+                elapsed >= timeoutMs -> callback(false)
                 else -> {
                     open()
                     main.postDelayed(attempt, 100L)

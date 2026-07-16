@@ -50,4 +50,38 @@ class AudioProfilePlanTest {
             AudioProfilePlan.isAudioConnected(setOf(AudioProfilePlan.Profile.A2DP))
         )
     }
+
+    @Test
+    fun policyWaitsForAnOptionalProfileRequestToSettle() {
+        val a2dpOnly = setOf(AudioProfilePlan.Profile.A2DP)
+
+        assertFalse(
+            AudioProfilePlan.canApplyPolicy(
+                available = a2dpOnly,
+                optionalProfilePending = true,
+                waitExpired = false,
+            )
+        )
+        assertTrue(
+            AudioProfilePlan.canApplyPolicy(
+                available = a2dpOnly,
+                optionalProfilePending = true,
+                waitExpired = true,
+            )
+        )
+    }
+
+    @Test
+    fun policyAppliesAsSoonAsBothProfileRequestsSettle() {
+        assertTrue(
+            AudioProfilePlan.canApplyPolicy(
+                available = setOf(
+                    AudioProfilePlan.Profile.A2DP,
+                    AudioProfilePlan.Profile.HEADSET,
+                ),
+                optionalProfilePending = false,
+                waitExpired = false,
+            )
+        )
+    }
 }

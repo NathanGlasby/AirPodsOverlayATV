@@ -11,5 +11,11 @@ internal object AudioProfilePlan {
     fun operationTargets(available: Set<Profile>): List<Profile> =
         if (isReady(available)) orderedProfiles.filter { it in available } else emptyList()
 
+    fun canApplyPolicy(
+        available: Set<Profile>,
+        optionalProfilePending: Boolean,
+        waitExpired: Boolean,
+    ): Boolean = isReady(available) && (!optionalProfilePending || waitExpired)
+
     fun isAudioConnected(connected: Set<Profile>): Boolean = Profile.A2DP in connected
 }
