@@ -212,15 +212,20 @@ class AapClient(
         }
 
         val failures = mutableListOf<String>()
+        val attemptFailures = mutableListOf<AapTransportPlan.AttemptFailure>()
         var lastFailure: Throwable? = null
-        var timedOutAttempts = 0
-        var unavailableAttempts = 0
         val strategies = AapTransportPlan.forSdk(Build.VERSION.SDK_INT)
 
-        fun recordUnavailable(strategy: AapTransportPlan.Security, error: Throwable) {
+        fun recordSocketCreationFailure(strategy: AapTransportPlan.Security, error: Throwable) {
             lastFailure = error
-            if (AapTransportPlan.isHiddenApiAccessFailure(error)) unavailableAttempts++
-            val detail = "${strategy.label} unavailable (${shortFailure(error)})"
+            val failure = AapTransportPlan.classifySocketCreationFailure(error)
+            attemptFailures += failure
+            val result = if (failure == AapTransportPlan.AttemptFailure.PLATFORM_API_UNAVAILABLE) {
+                "unavailable"
+            } else {
+                "failed"
+            }
+            val detail = "${strategy.label} $result (${shortFailure(error)})"
             failures += detail
             Log.w(TAG, detail, error)
         }
@@ -237,10 +242,10 @@ class AapClient(
             val attempt = try {
                 createSocket(strategy)
             } catch (e: Exception) {
-                recordUnavailable(strategy, e)
+                recordSocketCreationFailure(strategy, e)
                 return@forEachIndexed
             } catch (e: LinkageError) {
-                recordUnavailable(strategy, e)
+                recordSocketCreationFailure(strategy, e)
                 return@forEachIndexed
             }
 
@@ -295,9 +300,10 @@ class AapClient(
 
                 lastFailure = e
                 val detail = if (timedOut) {
-                    timedOutAttempts++
+                    attemptFailures += AapTransportPlan.AttemptFailure.TIMEOUT
                     "${strategy.label} timed out"
                 } else {
+                    attemptFailures += AapTransportPlan.AttemptFailure.CONNECTION_FAILURE
                     "${strategy.label} failed (${shortFailure(e)})"
                 }
                 failures += detail
@@ -308,10 +314,7 @@ class AapClient(
         throw TransportException(
             message = AapTransportPlan.failureDetail(failures),
             cause = lastFailure,
-            // Missing hidden APIs are terminal on every Android version. Other failures
-            // remain terminal only after both socket modes time out on Android 11.
-            platformBlocked = unavailableAttempts == strategies.size ||
-                (Build.VERSION.SDK_INT == 30 && timedOutAttempts == strategies.size),
+            platformBlocked = AapTransportPlan.isPlatformUnsupported(attemptFailures),
         )
     }
 

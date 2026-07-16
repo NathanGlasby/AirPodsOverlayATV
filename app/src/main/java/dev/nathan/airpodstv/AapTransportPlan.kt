@@ -11,6 +11,12 @@ internal object AapTransportPlan {
         SECURE("createL2capSocket", "secure L2CAP"),
     }
 
+    enum class AttemptFailure {
+        PLATFORM_API_UNAVAILABLE,
+        TIMEOUT,
+        CONNECTION_FAILURE,
+    }
+
     /**
      * The target Xiaomi Android 11 stack has been observed stalling the insecure path.
      * Bonded secure L2CAP reuses the existing AirPods link key and is tried first there.
@@ -41,6 +47,17 @@ internal object AapTransportPlan {
         }
         return false
     }
+
+    fun classifySocketCreationFailure(error: Throwable): AttemptFailure =
+        if (isHiddenApiAccessFailure(error)) {
+            AttemptFailure.PLATFORM_API_UNAVAILABLE
+        } else {
+            AttemptFailure.CONNECTION_FAILURE
+        }
+
+    /** A transport is unsupported only when no socket strategy exists on the platform. */
+    fun isPlatformUnsupported(failures: List<AttemptFailure>): Boolean =
+        failures.isNotEmpty() && failures.all { it == AttemptFailure.PLATFORM_API_UNAVAILABLE }
 
     fun failureDetail(failures: List<String>): String = when {
         failures.isEmpty() -> "Classic L2CAP connection failed"

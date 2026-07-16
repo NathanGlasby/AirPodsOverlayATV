@@ -75,4 +75,89 @@ class AapTransportPlanTest {
     fun hiddenApiFailureDoesNotClassifyOrdinaryIoFailure() {
         assertFalse(AapTransportPlan.isHiddenApiAccessFailure(java.io.IOException("temporary")))
     }
+
+    @Test
+    fun allMissingPlatformApisAreUnsupported() {
+        assertTrue(
+            AapTransportPlan.isPlatformUnsupported(
+                AapTransportPlan.forSdk(30).map {
+                    AapTransportPlan.AttemptFailure.PLATFORM_API_UNAVAILABLE
+                }
+            )
+        )
+    }
+
+    @Test
+    fun android11AllTimeoutsRemainRetryable() {
+        assertFalse(
+            AapTransportPlan.isPlatformUnsupported(
+                AapTransportPlan.forSdk(30).map { AapTransportPlan.AttemptFailure.TIMEOUT }
+            )
+        )
+    }
+
+    @Test
+    fun ioFailuresAndConnectionRefusalsRemainRetryable() {
+        assertFalse(
+            AapTransportPlan.isPlatformUnsupported(
+                listOf(
+                    AapTransportPlan.AttemptFailure.CONNECTION_FAILURE,
+                    AapTransportPlan.AttemptFailure.CONNECTION_FAILURE,
+                )
+            )
+        )
+    }
+
+    @Test
+    fun unavailableAndTimeoutFailuresRemainRetryable() {
+        assertFalse(
+            AapTransportPlan.isPlatformUnsupported(
+                listOf(
+                    AapTransportPlan.AttemptFailure.PLATFORM_API_UNAVAILABLE,
+                    AapTransportPlan.AttemptFailure.TIMEOUT,
+                )
+            )
+        )
+    }
+
+    @Test
+    fun unavailableAndConnectionFailuresRemainRetryable() {
+        assertFalse(
+            AapTransportPlan.isPlatformUnsupported(
+                listOf(
+                    AapTransportPlan.AttemptFailure.PLATFORM_API_UNAVAILABLE,
+                    AapTransportPlan.AttemptFailure.CONNECTION_FAILURE,
+                )
+            )
+        )
+    }
+
+    @Test
+    fun timeoutAndConnectionFailuresRemainRetryable() {
+        assertFalse(
+            AapTransportPlan.isPlatformUnsupported(
+                listOf(
+                    AapTransportPlan.AttemptFailure.TIMEOUT,
+                    AapTransportPlan.AttemptFailure.CONNECTION_FAILURE,
+                )
+            )
+        )
+    }
+
+    @Test
+    fun emptyFailureListIsNotUnsupported() {
+        assertFalse(AapTransportPlan.isPlatformUnsupported(emptyList()))
+    }
+
+    @Test
+    fun socketCreationFailureClassificationKeepsOrdinaryErrorsRetryable() {
+        assertEquals(
+            AapTransportPlan.AttemptFailure.PLATFORM_API_UNAVAILABLE,
+            AapTransportPlan.classifySocketCreationFailure(NoSuchMethodException("missing")),
+        )
+        assertEquals(
+            AapTransportPlan.AttemptFailure.CONNECTION_FAILURE,
+            AapTransportPlan.classifySocketCreationFailure(java.io.IOException("refused")),
+        )
+    }
 }
