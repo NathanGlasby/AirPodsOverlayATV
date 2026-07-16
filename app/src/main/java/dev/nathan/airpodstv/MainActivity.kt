@@ -64,6 +64,9 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         setContentView(R.layout.activity_main)
+        findViewById<TextView>(R.id.buildInfo).text =
+            "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}), " +
+                "commit ${BuildConfig.BUILD_COMMIT}"
 
         permStatus = findViewById(R.id.permStatus)
         overlayStatus = findViewById(R.id.overlayStatus)
@@ -483,8 +486,12 @@ class MainActivity : Activity(), BeaconBus.Listener, AapBus.Listener {
         }
         for (dev in sorted) {
             val selected = dev.address == prefs.deviceAddress
+            val deviceLabel = dev.name ?: dev.address
             val row = TextView(this).apply {
-                text = (if (selected) "●  " else "○  ") + (dev.name ?: dev.address)
+                text = (if (selected) "●  " else "○  ") + deviceLabel
+                contentDescription = "$deviceLabel, " +
+                    if (selected) "selected" else "not selected"
+                isSelected = selected
                 textSize = 16f
                 setTextColor(if (selected) 0xFF4C8DFF.toInt() else 0xFFF2F2F5.toInt())
                 setPadding(24, 20, 24, 20)

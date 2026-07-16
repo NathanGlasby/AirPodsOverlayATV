@@ -108,8 +108,7 @@ class BleScanService : Service() {
 
     private val popupSession = PopupSession(SESSION_RESET_MS)
     private val aapSessionPolicy = AapSessionPolicy()
-    private val earPausePolicy = EarPausePolicy()
-    private val lidClosePolicy = LidClosePolicy(BEACON_GONE_MS)
+    private val reactionController = ConnectedReactionController(BEACON_GONE_MS)
     private var popupIsTest = false
     private var latestBeacon: BeaconParser.Beacon? = null
     private var latestAcceptedBeacon: BeaconParser.Beacon? = null
@@ -124,14 +123,9 @@ class BleScanService : Service() {
     private var aapTransportUnsupported = false
     private var pendingAapStart: Runnable? = null
     private var scanResumeAt = 0L
-    private var aapEarAuthoritative = false
-    private var aapBothPodsInCase = false
-    private var earStreakValue: Int? = null
-    private var earStreak = 0
     private var disconnectInFlight = false
     private var lidDisconnectAttempts = 0
     private var lidCloseCycleGeneration = 0L
-    private var podsOutsideCaseStreak = 0
     private var silenceChecksResumeAt = 0L
     private var connectedSessionInitialized = false
 
@@ -201,13 +195,16 @@ class BleScanService : Service() {
             reconcileAapSession(now)
             val silenceChecksAllowed = !aapTransportInFlight && scanner != null &&
                 now >= silenceChecksResumeAt
-            if (silenceChecksAllowed &&
-                prefs.autoDisconnectOnLidClose &&
-                connector.isConnected(prefs.deviceAddress) &&
-                lidClosePolicy.onTime(now) == LidClosePolicy.Action.DISCONNECT
-            ) {
-                disconnectSelectedDevice("case beacon stopped after both pods entered the case")
-            }
+            applyConnectedReactionActions(
+                reactionController.onTime(
+                    ConnectedReactionController.TimeInput(
+                        nowMs = now,
+                        connected = connector.isConnected(prefs.deviceAddress),
+                        silenceChecksAllowed = silenceChecksAllowed,
+                        autoDisconnectEnabled = prefs.autoDisconnectOnLidClose,
+                    )
+                )
+            )
             val lastBeaconAt = popupSession.lastBeaconAt
             if (silenceChecksAllowed && overlay?.isShowing == true && !popupIsTest &&
                 lastBeaconAt != 0L &&
@@ -266,8 +263,7 @@ class BleScanService : Service() {
             Log.e(TAG, "Scan failed: $errorCode")
             scanner = null
             // Scanner failure is not case silence; discard the stale lid-close latch.
-            lidClosePolicy.reset()
-            podsOutsideCaseStreak = 0
+            reactionController.onScannerUnavailable()
             prefs.serviceStatus = "BLE scan failed (code $errorCode); retrying"
             nextScanRetryAt = SystemClock.elapsedRealtime() + SCAN_RETRY_MS
         }
@@ -454,47 +450,21 @@ class BleScanService : Service() {
 
     private fun handleConnectedBeacon(beacon: BeaconParser.Beacon) {
         val now = SystemClock.elapsedRealtime()
-
-        // AAP placement is transition-driven, so silence does not make it stale. BLE is
-        // only a fallback until the first complete AAP placement sample in this session.
-        if (!aapEarAuthoritative) {
-            val inEarCount = listOf(beacon.leftInEar, beacon.rightInEar).count { it }
-            handleEarCount(inEarCount, requireStreak = true)
-        }
-
-        // AAP owns pod placement after its first complete sample. BLE may then add the
-        // reliable lid-closed edge, but it may not override AAP's in/out-of-case state.
-        val lidAction = when {
-            aapEarAuthoritative && aapBothPodsInCase -> {
-                podsOutsideCaseStreak = 0
-                lidClosePolicy.onSignal(
-                    bothPodsInCase = true,
-                    explicitlyClosed = beacon.lidState == BeaconParser.LidState.CLOSED,
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        applyConnectedReactionActions(
+            reactionController.onBleSample(
+                ConnectedReactionController.BleSample(
+                    inEarCount = listOf(beacon.leftInEar, beacon.rightInEar).count { it },
+                    bothPodsInCase = beacon.bothPodsInCase,
+                    lidClosed = beacon.lidState == BeaconParser.LidState.CLOSED,
+                    playbackActive = audioManager.isMusicActive,
+                    connected = connector.isConnected(prefs.deviceAddress),
+                    autoPauseEnabled = prefs.autoPause,
+                    autoDisconnectEnabled = prefs.autoDisconnectOnLidClose,
                     nowMs = now,
                 )
-            }
-            aapEarAuthoritative -> LidClosePolicy.Action.NONE
-            beacon.bothPodsInCase -> {
-                podsOutsideCaseStreak = 0
-                lidClosePolicy.onSignal(
-                    bothPodsInCase = true,
-                    explicitlyClosed = beacon.lidState == BeaconParser.LidState.CLOSED,
-                    nowMs = now,
-                )
-            }
-            else -> {
-                podsOutsideCaseStreak++
-                if (podsOutsideCaseStreak == 2) {
-                    resetLidCloseCycle()
-                    // Keep the confirmed state saturated until a both-in-case frame returns.
-                    podsOutsideCaseStreak = 2
-                }
-                LidClosePolicy.Action.NONE
-            }
-        }
-        if (prefs.autoDisconnectOnLidClose && lidAction == LidClosePolicy.Action.DISCONNECT) {
-            disconnectSelectedDevice("case lid closed with both pods inside")
-        }
+            )
+        )
     }
 
     private fun handlePopupBeacon(beacon: BeaconParser.Beacon) {
@@ -576,36 +546,32 @@ class BleScanService : Service() {
 
     // ---- reactions ----
 
-    /** BLE counts need two identical frames; AAP placement updates are trusted directly. */
-    private fun handleEarCount(inEarCount: Int, requireStreak: Boolean) {
-        if (!prefs.autoPause) {
-            earPausePolicy.reset()
-            return
-        }
-        if (!connector.isConnected(prefs.deviceAddress)) {
-            earPausePolicy.reset()
-            return
-        }
-        if (requireStreak) {
-            if (inEarCount == earStreakValue) earStreak++ else {
-                earStreakValue = inEarCount
-                earStreak = 1
+    private fun applyConnectedReactionActions(actions: List<ConnectedReactionController.Action>) {
+        actions.forEach { action ->
+            when (action) {
+                ConnectedReactionController.Action.PAUSE_MEDIA -> dispatchMediaKey(
+                    KeyEvent.KEYCODE_MEDIA_PAUSE,
+                    "Pod removed; pause",
+                )
+                ConnectedReactionController.Action.PLAY_MEDIA -> dispatchMediaKey(
+                    KeyEvent.KEYCODE_MEDIA_PLAY,
+                    "Pod returned; play",
+                )
+                ConnectedReactionController.Action.DISCONNECT_CLOSED_CASE ->
+                    disconnectSelectedDevice("case lid closed with both pods inside")
+                ConnectedReactionController.Action.DISCONNECT_SILENT_CASE ->
+                    disconnectSelectedDevice("case beacon stopped after both pods entered the case")
+                ConnectedReactionController.Action.RESET_LID_DISCONNECT ->
+                    resetLidDisconnectOperation()
             }
-            if (earStreak < 2) return
         }
+    }
+
+    private fun dispatchMediaKey(keyCode: Int, logMessage: String) {
         val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        val action = earPausePolicy.onInEarCount(
-            inEarCount,
-            playbackActive = am.isMusicActive,
-        )
-        val key = when (action) {
-            EarPausePolicy.Action.PAUSE -> KeyEvent.KEYCODE_MEDIA_PAUSE
-            EarPausePolicy.Action.PLAY -> KeyEvent.KEYCODE_MEDIA_PLAY
-            EarPausePolicy.Action.NONE -> return
-        }
-        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))
-        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key))
-        Log.i(TAG, if (action == EarPausePolicy.Action.PLAY) "Pod returned; play" else "Pod removed; pause")
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+        Log.i(TAG, logMessage)
     }
 
     private fun onDeviceConnected() {
@@ -709,8 +675,7 @@ class BleScanService : Service() {
         aap = null
         client?.stop()
         aapSessionPolicy.reset()
-        aapEarAuthoritative = false
-        aapBothPodsInCase = false
+        reactionController.onAapUnavailable()
         updateAapState(targetState)
         AapBus.batteryLine = null
         AapBus.ancMode = null
@@ -752,8 +717,7 @@ class BleScanService : Service() {
                     finishAapTransportAttempt()
                     aap = null
                     aapDeviceAddress = null
-                    aapEarAuthoritative = false
-                    aapBothPodsInCase = false
+                    reactionController.onAapUnavailable()
                     aapSessionPolicy.onFailure(SystemClock.elapsedRealtime())
                     AapBus.batteryLine = null
                     AapBus.ancMode = null
@@ -766,8 +730,7 @@ class BleScanService : Service() {
                     finishAapTransportAttempt()
                     aap = null
                     aapDeviceAddress = null
-                    aapEarAuthoritative = false
-                    aapBothPodsInCase = false
+                    reactionController.onAapUnavailable()
                     aapSessionPolicy.reset()
                     AapBus.batteryLine = null
                     AapBus.ancMode = null
@@ -817,22 +780,21 @@ class BleScanService : Service() {
                 Log.w(TAG, "Ignoring incomplete AAP placement sample: $primary/$secondary")
                 return
             }
-            val now = SystemClock.elapsedRealtime()
-            aapEarAuthoritative = true
-            val inEarCount = listOf(primary, secondary).count { it == AapClient.Placement.IN_EAR }
-            handleEarCount(inEarCount, requireStreak = false)
-            val bothInCase = primary == AapClient.Placement.IN_CASE &&
-                secondary == AapClient.Placement.IN_CASE
-            aapBothPodsInCase = bothInCase
-            if (bothInCase) {
-                lidClosePolicy.onSignal(
-                    bothPodsInCase = true,
-                    explicitlyClosed = false,
-                    nowMs = now,
+            val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+            applyConnectedReactionActions(
+                reactionController.onAapSample(
+                    ConnectedReactionController.AapSample(
+                        inEarCount = listOf(primary, secondary)
+                            .count { it == AapClient.Placement.IN_EAR },
+                        bothPodsInCase = primary == AapClient.Placement.IN_CASE &&
+                            secondary == AapClient.Placement.IN_CASE,
+                        playbackActive = audioManager.isMusicActive,
+                        connected = connector.isConnected(address),
+                        autoPauseEnabled = prefs.autoPause,
+                        nowMs = SystemClock.elapsedRealtime(),
+                    )
                 )
-            } else {
-                resetLidCloseCycle()
-            }
+            )
         }
 
         override fun onAncMode(wireMode: Int) {
@@ -908,21 +870,15 @@ class BleScanService : Service() {
         }
     }
 
-    private fun resetLidCloseCycle() {
+    private fun resetLidDisconnectOperation() {
         lidCloseCycleGeneration++
-        lidClosePolicy.reset()
         lidDisconnectAttempts = 0
         disconnectInFlight = false
-        podsOutsideCaseStreak = 0
     }
 
     private fun resetConnectedReactions(keepConnectionFlag: Boolean = false) {
-        earPausePolicy.reset()
-        resetLidCloseCycle()
-        aapEarAuthoritative = false
-        aapBothPodsInCase = false
-        earStreakValue = null
-        earStreak = 0
+        reactionController.reset()
+        resetLidDisconnectOperation()
         if (!keepConnectionFlag) {
             connectedSessionInitialized = false
         }

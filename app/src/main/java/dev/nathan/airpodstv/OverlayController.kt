@@ -45,6 +45,7 @@ class OverlayController(
     private var subtitleView: TextView? = null
     private var statusIndicator: StatusIndicatorView? = null
     private var timeoutRunnable: Runnable? = null
+    private var shownDeviceName: String? = null
     private var canConnect = false
 
     val isShowing: Boolean get() = root != null
@@ -69,6 +70,7 @@ class OverlayController(
     fun show(deviceName: String, timeoutSec: Int, withButtons: Boolean = true): Boolean {
         if (isShowing) return true
         if (!Settings.canDrawOverlays(context)) return false
+        shownDeviceName = deviceName
         canConnect = withButtons
 
         val pill = LinearLayout(context).apply {
@@ -80,6 +82,10 @@ class OverlayController(
             isFocusable = withButtons
             isFocusableInTouchMode = withButtons
             isClickable = withButtons
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            contentDescription = "$deviceName. " +
+                if (withButtons) "Press OK to connect" else "Nearby"
             setOnClickListener {
                 if (canConnect) {
                     setConnecting()
@@ -109,6 +115,7 @@ class OverlayController(
             setImageResource(R.drawable.airpods4_photo)
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         pill.addView(artwork, LinearLayout.LayoutParams(dp(31), dp(31)))
 
@@ -141,6 +148,7 @@ class OverlayController(
 
         val indicator = StatusIndicatorView(context).apply {
             mode = if (withButtons) IndicatorMode.OK else IndicatorMode.NONE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         statusIndicator = indicator
         statusRow.addView(indicator, LinearLayout.LayoutParams(dp(12), dp(12)))
@@ -248,6 +256,7 @@ class OverlayController(
             RED -> IndicatorMode.ERROR
             else -> IndicatorMode.NONE
         }
+        updateAccessibilityStatus(text)
     }
 
     fun setConnecting() {
@@ -257,17 +266,23 @@ class OverlayController(
             setTextColor(TEXT_SECONDARY)
         }
         statusIndicator?.mode = IndicatorMode.CONNECTING
+        updateAccessibilityStatus("Connecting")
         timeoutRunnable?.let { main.removeCallbacks(it) }
         timeoutRunnable = Runnable { onDismiss() }.also { main.postDelayed(it, 30_000L) }
     }
 
     fun setResult(success: Boolean, autoHideMs: Long = 2500L, message: String? = null) {
         canConnect = !success
+        val resultMessage = message ?: "Failed"
+        val status = if (success) "Connected" else "$resultMessage · Press OK to retry"
         subtitleView?.apply {
-            text = if (success) "Connected" else (message ?: "Failed") + " · Press OK to retry"
+            text = status
             setTextColor(if (success) GREEN else RED)
         }
         statusIndicator?.mode = if (success) IndicatorMode.CONNECTED else IndicatorMode.ERROR
+        updateAccessibilityStatus(
+            if (success) status else "$resultMessage. Press OK to retry"
+        )
         if (!success) pillView?.requestFocus()
 
         timeoutRunnable?.let { main.removeCallbacks(it) }
@@ -295,6 +310,12 @@ class OverlayController(
         pillView = null
         subtitleView = null
         statusIndicator = null
+        shownDeviceName = null
+    }
+
+    private fun updateAccessibilityStatus(status: String) {
+        val deviceName = shownDeviceName ?: return
+        pillView?.contentDescription = "$deviceName. $status"
     }
 
     private enum class IndicatorMode { NONE, OK, CONNECTING, CONNECTED, ERROR }

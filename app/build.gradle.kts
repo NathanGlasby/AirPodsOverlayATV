@@ -7,6 +7,21 @@ providers.gradleProperty("externalBuildDir").orNull?.let {
     layout.buildDirectory.set(file("$it/app"))
 }
 
+fun normalizedCommit(raw: String?): String? = raw
+    ?.trim()
+    ?.takeIf { it.matches(Regex("[0-9a-fA-F]{7,40}")) }
+    ?.take(12)
+
+val buildCommit = normalizedCommit(providers.environmentVariable("GITHUB_SHA").orNull)
+    ?: normalizedCommit(
+        runCatching {
+            providers.exec {
+                commandLine("git", "rev-parse", "--short=12", "HEAD")
+            }.standardOutput.asText.get()
+        }.getOrNull()
+    )
+    ?: "local"
+
 val releaseStorePath = providers.environmentVariable("AIRPODS_KEYSTORE_PATH").orNull
 val releaseStorePassword = providers.environmentVariable("AIRPODS_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("AIRPODS_KEY_ALIAS").orNull
@@ -28,6 +43,11 @@ android {
         targetSdk = 34
         versionCode = 17
         versionName = "2.7"
+        buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     signingConfigs {
