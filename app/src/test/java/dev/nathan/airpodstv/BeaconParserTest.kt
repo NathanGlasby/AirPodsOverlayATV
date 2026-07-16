@@ -2,6 +2,7 @@ package dev.nathan.airpodstv
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -17,6 +18,16 @@ class BeaconParserTest {
         this[6] = 0xFF.toByte()
         this[7] = 0x04
         this[8] = lidByte.toByte()
+    }
+
+    private fun assertRejectedFrame(data: ByteArray) {
+        assertNull(
+            BeaconParser.parseManufacturerData(
+                data,
+                address = "?",
+                rssi = -65,
+            )
+        )
     }
 
     @Test
@@ -73,22 +84,40 @@ class BeaconParserTest {
     }
 
     @Test
-    fun rejectsShortOrWrongPrefixTypeSevenFrames() {
-        assertEquals(
-            null,
+    fun rejectsFramesWithTheWrongSize() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+
+        assertNull(
             BeaconParser.parseManufacturerData(
-                ByteArray(11).apply { this[0] = 0x07 },
+                valid.copyOf(valid.size - 1),
                 address = "?",
                 rssi = -65,
-            ),
+            )
         )
-        assertEquals(
-            null,
+        assertNull(
             BeaconParser.parseManufacturerData(
-                frame(status = 0x35, lidByte = 0x13).apply { this[2] = 0x00 },
+                valid.copyOf(valid.size + 1),
                 address = "?",
                 rssi = -65,
-            ),
+            )
         )
+    }
+
+    @Test
+    fun rejectsFramesWithTheWrongType() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+        assertRejectedFrame(valid.apply { this[0] = 0x06 })
+    }
+
+    @Test
+    fun rejectsFramesWithTheWrongDeclaredLength() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+        assertRejectedFrame(valid.apply { this[1] = 0x18 })
+    }
+
+    @Test
+    fun rejectsFramesWithTheWrongPrefix() {
+        val valid = frame(status = 0x35, lidByte = 0x13)
+        assertRejectedFrame(valid.apply { this[2] = 0x00 })
     }
 }
