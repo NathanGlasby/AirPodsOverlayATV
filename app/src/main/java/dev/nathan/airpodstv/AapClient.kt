@@ -352,16 +352,13 @@ class AapClient(
                                     "AirPods rejected AAP handshake (status 0x%04X)".format(packet.status)
                                 )
                             }
-                            markSessionActive(handshakeGuard)
                         }
 
                         is AapPacket.Message -> {
-                            // A valid message is also proof that the peer accepted our handshake.
-                            markSessionActive(handshakeGuard)
-                            try {
-                                parseMessage(packet.command, packet.payload)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "parse error", e)
+                            val update = AapMessageDecoder.usefulUpdate(packet)
+                            if (update != null) {
+                                markSessionActive(handshakeGuard)
+                                dispatchUpdate(update)
                             }
                         }
 
@@ -408,15 +405,6 @@ class AapClient(
                     describeFailure(failure),
                 )
             }
-        }
-    }
-
-    private fun parseMessage(command: Int, payload: ByteArray) {
-        when (command) {
-            0x04 -> parseBattery(payload)
-            0x06 -> parseEarDetection(payload)
-            0x09 -> parseControl(payload)
-            0x31 -> parseKeys(payload)
         }
     }
 
@@ -480,77 +468,17 @@ class AapClient(
         }
     }
 
-    private fun parseBattery(payload: ByteArray) {
-        if (payload.isEmpty()) return
-        val count = payload[0].toInt() and 0xFF
-        val result = mutableMapOf<Component, Battery>()
-        var offset = 1
-        for (i in 0 until count) {
-            if (offset + 5 > payload.size) break
-            val type = payload[offset].toInt() and 0xFF
-            val percent = payload[offset + 2].toInt() and 0xFF
-            val status = payload[offset + 3].toInt() and 0xFF
-            offset += 5
-            // >100: 127 = phantom reading after case close, 255 = disconnected.
-            if (percent > 100) continue
-            val component = when (type) {
-                0x04 -> Component.LEFT
-                0x02 -> Component.RIGHT
-                0x08 -> Component.CASE
-                else -> continue
-            }
-            result[component] = Battery(percent, charging = status == 0x01)
-        }
-        if (result.isNotEmpty()) {
-            main.post { listener.onBattery(result) }
-        }
-    }
-
-    private fun parseEarDetection(payload: ByteArray) {
-        if (payload.size < 2) return
-        // 0x00 = in ear, 0x01 = out of ear, 0x02 = in case
-        val primary = payload[0].toInt() and 0xFF
-        val secondary = payload[1].toInt() and 0xFF
+    private fun dispatchUpdate(update: AapMessageDecoder.Update) {
         main.post {
-            listener.onEar(
-                primary = decodePlacement(primary),
-                secondary = decodePlacement(secondary),
-            )
-        }
-    }
-
-    private fun decodePlacement(value: Int): Placement = when (value) {
-        0x00 -> Placement.IN_EAR
-        0x01 -> Placement.OUT_OF_EAR
-        0x02 -> Placement.IN_CASE
-        else -> Placement.UNKNOWN
-    }
-
-    private fun parseControl(payload: ByteArray) {
-        if (payload.size < 2) return
-        val settingId = payload[0].toInt() and 0xFF
-        val value = payload[1].toInt() and 0xFF
-        if (settingId == 0x0D && value in ANC_OFF..ANC_ADAPTIVE) {
-            main.post { listener.onAncMode(value) }
-        }
-    }
-
-    private fun parseKeys(payload: ByteArray) {
-        // [count] then per key: type(1) unknown(1) length(1) unknown(1) data(length)
-        if (payload.isEmpty()) return
-        val keyCount = payload[0].toInt() and 0xFF
-        var offset = 1
-        for (i in 0 until keyCount) {
-            if (offset + 4 > payload.size) break
-            val keyType = payload[offset].toInt() and 0xFF
-            val keyLength = payload[offset + 2].toInt() and 0xFF
-            offset += 4
-            if (offset + keyLength > payload.size) break
-            val keyData = payload.copyOfRange(offset, offset + keyLength)
-            offset += keyLength
-            if (keyType == 0x01 && keyLength == 16) {
-                Log.i(TAG, "IRK received via key exchange")
-                main.post { listener.onIrk(keyData) }
+            when (update) {
+                is AapMessageDecoder.Update.Batteries -> listener.onBattery(update.values)
+                is AapMessageDecoder.Update.EarPlacement ->
+                    listener.onEar(update.primary, update.secondary)
+                is AapMessageDecoder.Update.AncMode -> listener.onAncMode(update.wireMode)
+                is AapMessageDecoder.Update.IdentityKey -> {
+                    Log.i(TAG, "IRK received via key exchange")
+                    listener.onIrk(update.value)
+                }
             }
         }
     }
